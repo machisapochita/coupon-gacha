@@ -279,7 +279,7 @@ function startGachaSequence() {
   gachaVideo.play();
 
   // 6秒後：賞種抽選 → 店舗抽選 → 演出開始
-  setTimeout(() => {
+  setTimeout(async () => {
     const prizeType = drawPrizeType();
     const store = drawStore(prizeType); // ✅ 引数付きで1回だけ抽選
 
@@ -308,43 +308,66 @@ function startGachaSequence() {
     prizeImage.classList.remove("hidden");
     prizeImage.classList.add("prize-image", "pop-in");
 
+    // ループ背景動画は事前に preload してから play（軽量化）
     const loopSrcMap = {
       normal: "videos/gacha_normal.mp4",
       rare: "videos/gacha_rare.mp4",
       "last-one": "videos/gacha_lastone.mp4"
     };
-    loopVideo.src = loopSrcMap[prizeType] || "videos/gacha_normal.mp4";
-    loopVideo.load();
-    loopContainer.classList.remove("hidden");
+    const loopSrc = loopSrcMap[prizeType] || "videos/gacha_normal.mp4";
+
+    try {
+      // 小さい preload（metadata）で素早く読み始め、再生直前に canplaythrough を期待
+      await preloadVideo(loopVideo, loopSrc, { preload: 'metadata', timeout: 3000 });
+      loopVideo.currentTime = 0;
+      loopVideo.muted = true; // autoplay を確実にする場合は最初は muted
+      await loopVideo.play().catch(() => { /* 再生失敗でも進める */ });
+      loopContainer.classList.remove("hidden");
+    } catch (err) {
+      console.warn("loop video preload/play failed:", err);
+      loopContainer.classList.remove("hidden");
+    }
 
     // 2秒後：PR動画開始
-    setTimeout(() => {
+    setTimeout(async () => {
+      // store 更新等
       store.prizeType = prizeType;
       store.unlocked = true;
       updateRestaurantData(store);
       addCoupon(store, prizeType);
 
       if (store.videoUrl) {
-        prVideo.src = store.videoUrl;
-        prVideo.muted = false;
-        prVideo.volume = 1.0;
+        // PR動画は事前に full preload (auto) してから再生する（可能なら低ビットレート版を用意）
+        try {
+          // ここは 'auto' にしてできるだけ読み込む
+          await preloadVideo(prVideo, store.videoUrl, { preload: 'auto', timeout: 7000 });
+        } catch (e) {
+          console.warn("prVideo preload warning:", e);
+        }
+
+        prVideo.muted = false; // ユーザー起点なら音声再生を許可
         prVideoContainer.classList.remove("hidden");
-        prVideo.play();
 
-        sendVideoLog({
-          userId: localStorage.getItem("userId"),
-          storeId: store.storeId,
-          storeName: store.name,
-          prizeType: store.prizeType,
-          salonId: getSalonId(), 
-          eventSource: "gacha"   // ← 追加：ガチャ起点であることを明示
-        });
-
-        prVideo.onended = () => {
-          prVideoContainer.classList.add("hidden");
+        // ended イベントで表示遷移を制御
+        const onEnded = () => {
+          prVideo.removeEventListener('ended', onEnded);
+          prVideoContainer.classList.add('hidden');
           showCouponCard(store, prizeType);
           updateStatusArea();
         };
+        prVideo.addEventListener('ended', onEnded);
+
+        // 再生開始（ユーザー操作起点なら play は成功しやすい）
+        prVideo.currentTime = 0;
+        try {
+          await prVideo.play();
+        } catch (playErr) {
+          console.warn("prVideo play failed:", playErr);
+          // 再生できない場合はUIで代替表示に遷移
+          prVideoContainer.classList.add('hidden');
+          showCouponCard(store, prizeType);
+          updateStatusArea();
+        }
       } else {
         console.warn("動画URLが未設定の店舗です");
         showCouponCard(store, prizeType);
@@ -666,4 +689,59 @@ function sendVideoLog({ userId, storeId, storeName, prizeType, salonId }) {
   })
   .then(json => console.log("動画視聴ログ送信結果:", json))
   .catch(err => console.error("動画視聴ログ送信エラー:", err));
+}
+
+/**
+ * video を指定 URL で preload -> canplaythrough / loadeddata を待って resolve するヘルパ
+ * - videoEl: HTMLVideoElement
+ * - url: string
+ * - opts: { preload: 'metadata'|'auto', timeout: ms }
+ */
+function preloadVideo(videoEl, url, opts = {}) {
+  const preloadMode = opts.preload || 'metadata';
+  const timeout = opts.timeout || 8000;
+
+  return new Promise((resolve, reject) => {
+    if (!videoEl) return reject(new Error('no video element'));
+    // 既に同じ src なら canplaythrough を待つ
+    const srcChanged = videoEl.src !== url;
+    videoEl.preload = preloadMode;
+
+    let timer = setTimeout(() => {
+      cleanup();
+      // タイムアウトしても loadeddata くらいあれば進める
+      resolve({ timeout: true });
+    }, timeout);
+
+    function onCanPlay() {
+      cleanup();
+      resolve({ ok: true });
+    }
+    function onLoadedData() {
+      cleanup();
+      resolve({ ok: true });
+    }
+    function onError(e) {
+      cleanup();
+      reject(e || new Error('video load error'));
+    }
+    function cleanup() {
+      clearTimeout(timer);
+      videoEl.removeEventListener('canplaythrough', onCanPlay);
+      videoEl.removeEventListener('loadeddata', onLoadedData);
+      videoEl.removeEventListener('error', onError);
+    }
+
+    videoEl.addEventListener('canplaythrough', onCanPlay, { once: true });
+    videoEl.addEventListener('loadeddata', onLoadedData, { once: true });
+    videoEl.addEventListener('error', onError, { once: true });
+
+    if (srcChanged) {
+      // src を差し替えて読み込み開始
+      videoEl.src = url;
+      try { videoEl.load(); } catch (e) { /* ignore */ }
+    } else {
+      // 既に同じ src の場合もイベント待ち
+    }
+  });
 }
