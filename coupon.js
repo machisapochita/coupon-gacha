@@ -103,12 +103,20 @@ function renderCoupons() {
 
   // ✅ 再描画後にイベントを再登録
   document.querySelectorAll(".use-button").forEach(button => {
+    // 重複登録防止
+    if (button.dataset.handlerAttached === "1") return;
+    button.dataset.handlerAttached = "1";
     button.addEventListener("click", () => {
       const storeId = button.dataset.id;
       const userId = localStorage.getItem("userId");
       const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`)) || [];
       const coupon = coupons.find(c => c.storeId === storeId);
       if (!coupon) return;
+
+      // restaurants データから店舗情報を探して currentStore にセット
+      const restaurants = JSON.parse(localStorage.getItem(`restaurantData_${userId}`)) || [];
+      const store = restaurants.find(r => r.storeId === storeId) || null;
+      currentStore = store; // store が null でもセットしておく
 
       const modal = document.getElementById("coupon-modal");
       modal.querySelector(".modal-store-name").textContent = coupon.storeName;
@@ -117,12 +125,6 @@ function renderCoupons() {
       modal.querySelector(".modal-expiry").textContent = `有効期限：${coupon.expiry}`;
       modal.querySelector("#key-input").value = "";
       modal.dataset.storeId = storeId;
-
-      // 重要: 現在選択中の店舗情報を currentStore にセットする
-      const restaurants = JSON.parse(localStorage.getItem(`restaurantData_${userId}`)) || [];
-      const store = restaurants.find(r => r.storeId === storeId) || null;
-      currentStore = store;
-
       modal.classList.remove("hidden");
     });
   });
@@ -303,6 +305,24 @@ function sendUsageLog({ userId, storeId, storeName, prizeType, salonId }) {
     eventType: "used",
     gachaCompleted: localStorage.getItem("gachaCompleted") === "true"
   };
+
+  // --- 重複送信対策（簡易デデュープ） ---
+  try {
+    const key = 'lastSentLog';
+    const last = JSON.parse(sessionStorage.getItem(key) || "{}");
+    const payloadSig = JSON.stringify({ userId, storeId, salonId, eventType: "used" });
+    const now = Date.now();
+    if (last.sig === payloadSig && (now - (last.t || 0)) < 2000) {
+      console.warn("sendUsageLog: duplicate suppressed", payloadSig);
+      return Promise.resolve({ skipped: true });
+    }
+    sessionStorage.setItem(key, JSON.stringify({ sig: payloadSig, t: now }));
+  } catch (e) {
+    console.warn("sendUsageLog: dedupe check failed", e);
+  }
+
+  console.log("sendUsageLog: payload ->", payload);
+  console.trace(); // 呼び出し元追跡用
   return postLog(payload)
     .then(json => { console.log("sendUsageLog ok:", json); return json; })
     .catch(err => { console.error("sendUsageLog error:", err); throw err; });

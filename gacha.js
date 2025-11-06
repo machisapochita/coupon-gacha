@@ -651,7 +651,7 @@ function sendVideoLog({ userId, storeId, storeName, prizeType, salonId }) {
   const url = "https://script.google.com/macros/s/AKfycbyzv4PcZ0fKPO3wN7RkbAeW8-GUeJYjDD6gcTfhdIo_P4Vyl1VEa2A4HdTmn_HH423l/exec";
 
   // application/x-www-form-urlencoded で送る（プレフライト回避）
-  fetch(url, {
+  return fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
