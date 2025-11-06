@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>サロン紹介｜まちサポ</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <video id="bg-video" autoplay muted loop playsinline>
+    <source src="videos/background.mp4" type="video/mp4">
+  </video>
+
+  <header class="header">
+    <img src="images/logo2.png" alt="まちサポ ロゴ" class="logo2" />
+  </header>
+
+  <main class="salon-list">
+    <p class="message-text">協力サロン紹介</p>
+    <div id="salon-container"></div>
+
+    <!-- サロン紹介モーダル -->
+    <div id="salon-modal" class="modal hidden">
+      <div class="salon-modal-content">
+        <button class="close-button">閉じる</button>
+        <h2 class="modal-salon-name">サロン名</h2>
+        <img id="modal-salon-photo" src="images/sample1.jpg" alt="サロン写真" class="modal-salon-photo" />
+        <p class="modal-town">所在地：〇〇町</p>
+        <p class="modal-hours">営業時間：10:00〜19:00</p>
+        <div class="modal-links">
+          <a href="" target="_blank" class="hp-button">店舗HP</a>
+          <span class="hp-badge">店舗HP準備中</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer-bar">
+    <nav class="navigation">
+      <a href="top.html">トップに戻る</a>
+    </nav>
+    <p>©2025 Local Connect</p>
+  </footer>
+
+  <script src="salon.js"></script>
+  
+</body>
+</html>

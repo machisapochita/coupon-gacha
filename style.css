@@ -1,0 +1,1308 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+
+  font-family: sans-serif;
+  text-align: center;
+}
+
+#bg-video {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  z-index: -1; /* 背景として後ろに配置 */
+  pointer-events: none; /* ユーザー操作を無効化 */
+}
+
+/*　ログイン画面　*/
+
+.login-section {
+  margin: 10px 0;
+  font-size: 7vw;
+}
+
+#login-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+#login-number {
+  width: 80vw;
+  max-width: 300px;
+  padding: 12px 3px;
+  font-size: clamp(4px, 6vw, 24px);
+  border: 2px solid #ccc;
+  border-radius: 8px;
+  text-align: center;
+}
+
+#login-button {
+  padding: 12px 5px;
+  width: 80vw;
+  max-width: 300px;
+  font-size: clamp(10px, 7vw, 28px);
+  font-weight: bold;
+  background-color: #66cc99;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+#login-button:hover {
+  transform: scale(1.05);
+}
+
+.hidden {
+  display: none;
+}
+.success-message {
+  color: blue;
+  font-size: 7vw;
+}
+
+.error-message {
+  color: red;
+  font-size: 6vw;
+}
+
+
+/* トップ画面関係　*/
+
+.main-menu {
+  padding: 0 5px 5px 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 80px;
+}
+
+.menu-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  align-items: center;
+}
+
+.menu-button {
+  display: block;
+  width: 80vw;
+  max-width: 400px;
+  padding: 12px 5px;
+  font-size: clamp(10px, 7vw, 28px);
+  text-align: center;
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: bold;
+  color: white;
+  transition: transform 0.2s ease;
+}
+
+/* 各ボタンの色分け */
+.menu-button.gacha {
+  background-color: #ff6f61;
+}
+.menu-button.coupon {
+  background-color: #f4b400;
+}
+.menu-button.restaurant {
+  background-color: #66cc99;
+}
+.menu-button.salon {
+  background-color: #6699cc;
+}
+.menu-button.logout {
+  background-color: #999;
+  margin-top: 30px;
+  border: none;
+}
+
+.menu-button:hover {
+  transform: scale(1.05);
+}
+
+/* フッターを画面下部に固定し、左右に配置 */
+.footer-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 5px;
+  background-color: #eee;
+  border-top: 1px solid #ccc;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.1);
+  font-size: clamp(6px, 4vw, 28px);
+}
+
+.footer-bar-initial {
+  text-align: center;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 10px 5px;
+  background-color: #eee;
+  border-top: 1px solid #ccc;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.1);
+  font-size: clamp(6px, 4vw, 28px);
+}
+
+/*　ガチャ画面　*/
+
+.header {
+  padding: 8px 15px 0 15px;
+  margin-bottom: 15px;
+}
+
+.logo1 {
+  max-width: 100%;
+}
+
+.logo2 {
+  max-width: 100%;
+}
+
+.asort-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 3px 10px;
+  margin: 10px 0;
+}
+
+/* ステータスエリア全体 */
+.status-area {
+  width: 100%;
+  background-color: #fff;
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+  padding: 3px;
+  font-size: 4vw;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: center;
+}
+
+/* ガチャ残り回数 */
+.remaining-count {
+  font-weight: bold;
+  font-size: 1.2em;
+}
+
+/* ノーマル賞＋レア賞を横並びに */
+.prize-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+}
+
+/* 各賞ボックス共通 */
+.prize-box {
+  flex: 1;
+  padding: 3px 10px;
+  border-radius: 8px;
+  font-weight: bold;
+  text-align: center;
+}
+
+/* 左：賞の名前 */
+.prize-label {
+  text-align: left;
+}
+
+/* 右：残数表示 */
+.prize-count {
+  text-align: right;
+  font-size: 1em;
+}
+
+/* ノーマル賞：緑茶色 */
+.prize-box.normal {
+  background: linear-gradient(to right, #a8c686, #d2e3c4);
+  color: #2e4b2c;
+}
+
+/* レア賞：シルバー */
+.prize-box.rare {
+  background: linear-gradient(to right, #dcdcdc, #f0f0f0);
+  color: #333;
+}
+
+/* ラストワン賞：ゴールド */
+.prize-box.last-one {
+  background: linear-gradient(to right, #ffd700, #fff8dc);
+  color: #5c4400;
+}
+
+/* ラストワン賞のコメント */
+.prize-comment {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.8em;
+  font-weight: normal;
+}
+
+.validity-info {
+  margin: 20px 0 80px 0;
+  padding: 3px;
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+  border-radius: 0;
+  font-size: 4vw;
+  color: #333;
+}
+
+.validity-info p {
+  margin: 2px 0;
+}
+
+.coupon-summary {
+  margin-bottom: 20px;
+  font-size: 5vw;
+  font-weight: bold;
+  padding: 3px 10px;
+  text-align: center;
+  transition: background 0.3s ease;
+  border-top: 0.5px solid rgb(190, 190, 188);
+  border-bottom: 0.5px solid rgb(190, 190, 188);
+}
+
+/* シルバー背景 */
+.coupon-summary.silver {
+  background: linear-gradient(to right, #dcdcdc, #f0f0f0);
+  color: #333;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ゴールド背景（1000円以上） */
+.coupon-summary.gold {
+  background: linear-gradient(to right, #ffd700, #fff8dc);
+  color: #5c4400;
+  position: relative;
+  overflow: hidden;
+}
+
+/* レインボー背景（2000円以上） */
+/* レインボー背景（既存） */
+.coupon-summary.rainbow {
+  background: linear-gradient(90deg, #ff6ec4, #7873f5, #4adede, #6effa1);
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+
+/* キラキラ光の流れ　シルバー */
+.coupon-summary.silver::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -50%;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(120deg, transparent, rgba(255,255,255,0.6), transparent);
+  animation: shimmer 1.5s infinite ease-in-out;
+}
+
+/* キラキラ光の流れ　ゴールド */
+.coupon-summary.gold::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -50%;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(120deg, transparent, rgba(255,255,255,0.6), transparent);
+  animation: shimmer 1.5s infinite ease-in-out;
+}
+
+/* キラキラ光の流れ　レインボー */
+.coupon-summary.rainbow::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -50%;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(120deg, transparent, rgba(255,255,255,0.6), transparent);
+  animation: shimmer 1.5s infinite ease-in-out;
+}
+
+/* アニメーション定義 */
+@keyframes shimmer {
+  0% { transform: translateX(-50%); }
+  100% { transform: translateX(50%); }
+}
+
+.rainbow {
+
+  color: white;
+  animation: rainbow-glow 2s infinite;
+}
+
+@keyframes rainbow-glow {
+  0% { box-shadow: 0 0 15px red; }
+  25% { box-shadow: 0 0 15px orange; }
+  50% { box-shadow: 0 0 15px green; }
+  75% { box-shadow: 0 0 15px blue; }
+  100% { box-shadow: 0 0 15px violet; }
+}
+
+/* 固定アクションバー（画面下部） */
+.fixed-action-bar {
+  width: 100%;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 10px 0;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+}
+
+/* ガチャ開始ボタン（続けてガチャをひく） */
+.fixed-action-bar #gacha-button {
+  width: 40vw;
+  max-width: 200px;
+  font-size: clamp(10px, 6vw, 24px);
+  padding: 10px 5px;
+}
+
+/* トップに戻るボタン（リンク形式） */
+.fixed-action-bar .back-to-top {
+  width: 40vw;
+  max-width: 200px;
+  font-size: clamp(10px, 6vw, 24px);
+  padding: 10px 5px;
+  background-color: #66cc99;
+  color: white;
+  text-align: center;
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: bold;
+  transition: transform 0.2s ease;
+}
+
+.fixed-action-bar .back-to-top:hover {
+  transform: scale(1.05);
+}
+
+/* ガチャ開始ボタンを中央・70%幅で表示 */
+.gacha-button-wrapper {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0;
+}
+
+.gacha-button-image {
+  width: 80vw;
+  max-width: 400px;
+  cursor: pointer;
+  transition: transform 0.2s ease-in-out;
+}
+
+@keyframes zoomBounce {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(1.05); }
+  60%  { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+
+.gacha-button-image.zoom {
+  animation: zoomBounce 1.2s infinite;
+  transition: transform 0.2s ease-in-out;
+}
+
+/* 通常時：パルスのみ */
+.gacha-button-image.pulse {
+  animation: pulse 1.5s infinite;
+}
+
+.gacha-button-image.zoom.rainbow {
+  animation: zoomBounce 1.2s infinite, rainbow-glow 2s infinite;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.6);
+  border-radius: 28px;
+}
+
+/* コンプリート：エフェクトなし */
+.gacha-button-image.complete {
+  animation: none;
+  box-shadow: none;
+  cursor: default;
+}
+
+/* レインボー輝きのキラキラ演出 */
+@keyframes rainbow-glow {
+  0%   { box-shadow: 0 0 30px rgba(255,0,0,0.7); }
+  25%  { box-shadow: 0 0 30px rgba(255,165,0,0.7); }
+  50%  { box-shadow: 0 0 30px rgba(0,255,0,0.7); }
+  75%  { box-shadow: 0 0 30px rgba(0,0,255,0.7); }
+  100% { box-shadow: 0 0 30px rgba(128,0,128,0.7); }
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.12); } /* 拡大率を調整可能 */
+  100% { transform: scale(1); }
+}
+
+/* 点滅アニメーション */
+@keyframes blink-border {
+  0% {
+    border-color: #ff0101;
+    box-shadow: 0 0 8px #ff0000;
+  }
+  50% {
+    border-color: transparent;
+    box-shadow: none;
+  }
+  100% {
+    border-color: #ff0101;
+    box-shadow: 0 0 8px #ff0000;
+  }
+}
+
+.gacha-button.complete {
+  animation: none;
+  border-color: #555;
+  box-shadow: none;
+  background-color: #555;
+  color: #fff;
+  cursor: default;
+}
+
+#gacha-button:hover {
+  transform: scale(1.05);
+}
+
+.gacha-video-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+#gacha-roll-video {
+  width: 100%;
+  display: block;
+  border-radius: 8px;
+}
+
+.background-loop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1; /* 賞画像より下に配置 */
+  overflow: hidden;
+}
+
+#loop-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.prize-image {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  animation: popIn 0.8s ease-out;
+  z-index: 2;
+}
+
+.pop-in {
+  animation: popIn 0.8s ease-out;
+}
+
+@keyframes popIn {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+/* PR動画全画面表示 */
+.fullscreen-video {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: black;
+  z-index: 2000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.close-video-button {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  font-size: 2rem;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  border: none;
+  border-radius: 20%;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+#pr-video {
+  height: 100vh;
+  width: auto;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.coupon-card-display h3 {
+  font-size: clamp(10px, 8vw, 28px);
+  font-weight: bold;
+  margin-top: 5px;
+}
+
+.coupon-card-display ul {
+  font-size: 6vw;
+  text-align: left;
+  padding-left: 5px;
+  margin-bottom: 5px;
+  list-style-position: inside;
+}
+
+.coupon-card-expiry {
+  font-size: 6vw;
+  padding: 5px 0;
+  border: 0.5px solid black;
+  margin-bottom: 8px;
+}
+
+.back-button {
+  width: 80vw;
+  max-width: 400px;
+  padding: 12px 5px;
+  background-color: #66cc99;
+  margin-top: 10px;
+  color: white;
+  font-size: clamp(10px, 7vw, 28px);
+  font-weight: bold;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.back-button:hover {
+  transform: scale(1.05);
+}
+
+.navigation a {
+  width: 40vw;
+  max-width: 400px;
+  display: inline-block;
+  font-size: clamp(6px, 5vw, 28px);
+  font-weight: bold;
+  padding: 8px;
+  background-color: #66cc99;
+  color: white;
+  text-decoration: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.navigation a:hover {
+  transform: scale(1.05);
+}
+
+.navigation p {
+  margin: 10px 0 5px 0;
+  font-size: 4vw;
+}
+
+/*　クーポン使用ページ　*/
+
+.coupon-list > h2 {
+  font-size: 7vw;
+  margin-top: 20px;
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+  border-radius: 0;
+}
+
+.coupon-card-wrapper {
+  margin-bottom: 80px;
+}
+
+.coupon-card {
+  width: 90%;
+  max-width: 400px;
+  margin: 10px auto;
+  padding: 5px;
+  border-radius: 12px;
+  color: #333;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  transition: background 0.3s ease;
+}
+
+/* ノーマル賞：シルバー */
+.coupon-card.normal {
+  background: linear-gradient(to right, #dcdcdc, #f0f0f0);
+}
+
+/* レア賞：ゴールド */
+.coupon-card.rare {
+  background: linear-gradient(to right, #ffd700, #fff8dc);
+  color: #5c4400;
+}
+
+/* ラストワン賞：レインボー */
+.coupon-card.last-one {
+  background: linear-gradient(90deg, #ff6ec4, #7873f5, #4adede, #6effa1);
+  color: #fff;
+}
+
+.coupon-header {
+  text-align: center;
+}
+
+.store-name {
+  font-size: 7vw;
+  font-weight: bold;
+}
+
+.store-salon-name {
+  font-size: 5vw;
+  font-weight: bold;
+}
+
+.discount-amount {
+  font-size: 7vw;
+  color: #e65c00;
+  font-weight: bold;
+}
+
+.coupon-card ul {
+  font-size: 6vw;
+  text-align: left;
+  padding-left: 5px;
+  margin-bottom: 5px;
+  list-style-position: inside;
+}
+
+.coupon-conditions {
+  padding: 0;
+  margin-top: 5px;
+}
+
+.coupon-expiry {
+  font-size: 5vw;
+  margin-bottom: 10px;
+  border: 0.5px solid black;
+}
+
+.coupon-actions {
+  display: flex;
+  justify-content: space-around;
+  gap: 10px;
+  margin: 0 5px 5px 5px;
+}
+
+.use-button,
+.intro-button {
+  width: 50%;
+  padding: 8px 0;
+  border: none;
+  border-radius: 6px;
+  font-size: clamp(6px, 7vw, 28px);
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.use-button {
+  background-color: #ff6f61;
+  color: white;
+}
+
+.intro-button {
+  background-color: #66cc99;
+  color: white;
+}
+
+.use-button:hover,
+.intro-button:hover {
+  transform: scale(1.05);
+}
+
+.coupon-card.used {
+  background: linear-gradient(to right, #cccccc, #eeeeee);
+  color: #999;
+  opacity: 0.8;
+}
+
+/* 折りたたみ表示のレイアウト */
+.coupon-card.collapsed {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  background: linear-gradient(to right, #eeeeee, #f9f9f9);
+  color: #999;
+  box-shadow: none;
+  opacity: 0.9;
+  cursor: pointer;
+  position: relative;
+}
+
+.coupon-card.collapsed:hover {
+  background: #f0f0f0;
+}
+
+.coupon-card.collapsed .coupon-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.coupon-card.collapsed.expanded {
+  background: linear-gradient(to right, #cccccc, #eeeeee);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+/* 横並びレイアウト */
+.collapsed-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 済マーク画像 */
+.sumi-mark {
+  width: 20%;
+}
+.sumi-mark img {
+  width: 100%;
+  height: auto;
+}
+
+/* 店舗名と割引額 */
+.summary-text {
+  flex: 1;
+  text-align: left;
+}
+.summary-text .store-name {
+  font-size: 6vw;
+  font-weight: bold;
+  margin-bottom: 2px;
+}
+.summary-text .discount-amount {
+  font-size: 5vw;
+  color: #999;
+}
+
+/* 展開インジケーター（三角） */
+.expand-indicator {
+  position: absolute;
+  bottom: -15px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1rem;
+  color: #aaa;
+  background: white;
+  padding: 0 4px;
+  border-radius: 50%;
+  border: 1px solid #ccc;
+  box-shadow: 0 0 4px rgba(0,0,0,0.1);
+}
+
+.coupon-card.collapsed .store-name {
+  font-size: 6vw;
+  font-weight: bold;
+}
+
+.coupon-card.collapsed .discount-amount {
+  font-size: 6vw;
+  color: #999;
+}
+
+/*　モーダルスタイル　*/
+
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 999;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  padding: 10px 5px;
+  width: 90%;
+  max-width: 500px;
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+.salon-modal-content {
+  background: #f5f8c8;
+  border-radius: 12px;
+  padding: 10px 5px;
+  width: 90%;
+  max-width: 500px;
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+.modal-content h2 {
+  font-size: clamp(6px, 7vw, 28px) !important;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+#modal-photo {
+  width: 70%; /* ← max-width ではなく固定幅にしてバランス調整 */
+  height: auto;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+#modal-salon-photo {
+  width: 90%; /* ← max-width ではなく固定幅にしてバランス調整 */
+  height: auto;
+  border-radius: 6px;
+  object-fit: cover;
+  margin-top: 5px;
+}
+
+.modal-photo-slider {
+  display: flex;
+  align-items: center;
+  justify-content: center; /* ← 左右に配置 */
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.photo-nav {
+  font-size: 7vw;
+  width: 40px;
+  height: 40px;
+  background-color: #c2c0c0;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  color: #333;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: transform 0.2s ease;
+}
+
+.photo-nav:hover {
+  transform: scale(1.2);
+  background-color: #ddd;
+}
+
+.photo-controls button {
+  padding: 1px 12px;
+  font-size: 6vw;
+  border: none;
+  border-radius: 6px;
+  background-color: #66cc99;
+  color: white;
+  cursor: pointer;
+}
+
+.modal-town,
+.modal-status,
+.modal-hours {
+  font-size: 5vw;
+}
+
+.modal-links {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 5px;
+  align-items: center;
+}
+
+.link-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.link-row a,
+.hp-button {
+  padding: 6px 12px;
+  font-size: clamp(6px, 5vw, 28px);
+  border: none;
+  border-radius: 6px;
+  background-color: #66cc99;
+  color: white;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.modal-links a {
+  display: block;
+  margin: 2px auto;
+  padding: 8px 12px;
+  font-size: clamp(6px, 5vw, 28px);
+  background-color: #f4b400;
+  color: white;
+  border-radius: 6px;
+  text-decoration: none;
+  max-width: 300px;
+}
+
+#salon-container {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  padding: 10px 10px 80px 10px;
+  justify-content: center;
+  gap: 10px;
+}
+
+.store-card {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  padding: 6px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.store-card:hover {
+  transform: scale(1.02);
+}
+
+.salon-store-card {
+  background: #f5f8c8;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  padding: 6px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.salon-store-card:hover {
+  transform: scale(1.02);
+}
+
+.store-photo {
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin-bottom: 0px;
+}
+
+.store-town {
+  font-size: 4vw;
+  color: #666;
+}
+
+.hp-button {
+  display: inline-block; /* ← 初期状態で非表示になっていないか確認 */
+}
+
+.map-button,
+.video-button,
+.hp-button {
+  font-size: clamp(6px, 5vw, 28px);
+  border: none;
+  border-radius: 6px;
+  background-color: #66cc99;
+  color: white;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.hp-badge {
+  display: none;
+  background-color: #ccc;
+  color: #333;
+  font-size: clamp(6px, 5vw, 28px);
+  padding: 6px 12px;
+  border-radius: 6px;
+  vertical-align: middle;
+  align-self: center;
+  margin-bottom: 5px;
+}
+
+.close-button {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background-color: #66cc99;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: clamp(6px, 6vw, 28px);
+}
+
+.modal .modal-store-name {
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: clamp(16px, 6vw, 28px);
+  font-weight: bold;
+}
+
+.modal-discount {
+  font-size: 8vw;
+  color: #e65c00;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.modal-conditions {
+  text-align: left;
+  padding-left: 10px;
+  margin: 5px 0;
+  font-size: 6vw;
+  list-style-position: inside;
+}
+
+.modal-expiry {
+  font-size: 5vw;
+  margin-bottom: 6px;
+  border: 0.5px solid black;
+}
+
+.modal-key {
+  margin: 10px 2px;
+  font-size: 6vw;
+}
+
+#key-input {
+  font-size: clamp(10px, 6vw, 28px);
+  padding: 8px;
+  text-align: center;
+  width: 80%;
+  border-radius: 6px;
+  border: 1px solid #a5a3a3;
+  margin-top: 5px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.confirm-use-button {
+  padding: 8px 0;
+  margin-bottom: 5px;
+  width: 80%;
+  font-size: clamp(6px, 7vw, 28px);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  background-color: #ff6f61;
+  color: white;
+}
+
+/*　飲食店紹介ページ　*/
+
+.restaurant-list {
+  margin-bottom: 80px;
+}
+
+.restaurant-list h2 {
+  font-size: 7vw;
+  margin: 20px 0;
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+}
+
+.message-text {
+  margin: 10px 0 10px 0;
+  font-size: 5vw;
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+  border-radius: 0;
+}
+
+#restaurant-container {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  row-gap: 15px;
+  padding: 10px 0 10px 10px;
+  justify-content: center;
+}
+
+.restaurant-card {
+  position: relative;
+  background: white;
+  border: 0.5px solid black;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  padding: 3px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.restaurant-card:hover {
+  transform: scale(1.02);
+}
+
+.restaurant-card h3.store-name {
+  font-size: 4vw;
+  margin-bottom: 5px;
+  font-weight: bold;
+  color: #333;
+}
+
+.card-content {
+  display: flex;
+  gap: 2px;
+}
+
+.store-image {
+  width: 50%;
+  object-fit: cover;
+  border-radius: 1px;
+}
+
+.store-details p {
+  margin: 1px 0;
+  font-size: 2.5vw;
+  text-align: left;
+  color: #555;
+}
+
+.restaurant-card.locked {
+  background: repeating-linear-gradient(
+    45deg,
+    #ccc,
+    #ccc 10px,
+    #ddd 10px,
+    #ddd 20px
+  );
+  opacity: 0.8;
+  pointer-events: none;
+  cursor: default;
+}
+
+.lock-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.lock-image {
+  width: 100%;
+  height: auto;
+}
+
+.locked-image {
+  width: 50%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    45deg,
+    #ccc,
+    #ccc 10px,
+    #ddd 10px,
+    #ddd 20px
+  );
+  border-radius: 1px;
+}
+
+.coupon-status {
+  font-weight: bold;
+  padding: 2px 2px;
+  display: inline-block;
+  font-size: 2.5vw !important;
+  margin-top: 0px;
+}
+
+.coupon-status.used {
+  background-color: #d4f4dd;
+  color: #2e7d32;
+}
+
+.coupon-status.unused {
+  background-color: #fce4ec;
+  color: #c2185b;
+}
+
+.restaurant-card.used {
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0px rgba(46, 125, 50, 0.4); }
+  50% { box-shadow: 0 0 8px rgba(46, 125, 50, 0.6); }
+  100% { box-shadow: 0 0 0px rgba(46, 125, 50, 0.4); }
+}
+
+
+/* スマホ対応 */
+
+
+@media (max-width: 600px) {
+  .gacha-image,
+  .store-image {
+    max-width: 90%;
+  }
+
+  #gacha-button {
+    width: 80%;
+  }
+
+  #coupon-container {
+    grid-template-columns: 1fr;
+  }
+
+  .restaurant-card {
+    max-width: 90%;
+  }
+
+  .modal-content {
+    padding: 3px 5px;
+  }
+}

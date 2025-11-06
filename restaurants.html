@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>飲食店紹介｜まちサポクーポンガチャ</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <video id="bg-video" autoplay muted loop playsinline>
+    <source src="videos/background.mp4" type="video/mp4">
+  </video>
+
+  <header class="header">
+    <img src="images/logo2.png" alt="まちサポクーポンガチャ ロゴ" class="logo2" />
+  </header>
+
+  <main class="restaurant-list">
+    <p class="message-text">店舗一覧　ガチャをひいて開放！</p>
+
+    <div id="restaurant-container">
+      <!-- JSで10店舗分を動的に生成 -->
+      <!-- 以下は1店舗分の構造例（JSで繰り返し生成） -->
+      <div class="restaurant-card unlocked" data-store-id="ramen001-1">
+        <h3 class="store-name">ラーメン一番</h3>
+
+        <div class="card-content">
+          <img src="images/ramen1_1.jpg" alt="店舗写真" class="store-image" />
+
+          <div class="store-details">
+            <p class="store-genre">ラーメン</p>
+            <p class="store-town">新知西町</p>
+            <p class="coupon-status">クーポン：済</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="restaurant-card locked" data-store-id="yakiniku1">
+        <div class="lock-overlay">
+          <img src="images/rock_chain.png" alt="ロック中" class="lock-image" />
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ポップアップモーダル -->
+  <div id="restaurant-modal" class="modal hidden">
+    <div class="modal-content">
+      <button class="close-button">戻る</button>
+
+      <h2 class="modal-store-name">店舗名</h2>
+
+      <div class="modal-photo-slider">
+        <button id="prev-photo" class="photo-nav">←</button>
+
+        <img id="modal-photo" src="images/sample1.jpg" alt="店舗写真" />
+
+        <button id="next-photo" class="photo-nav">→</button>
+      </div>
+
+      <p class="modal-town">📍 所在地：〇〇町</p>
+      <p class="modal-hours">🕒 営業時間：11:00〜22:00</p>
+      <p class="modal-status">クーポン：未使用</p>
+
+      <div class="modal-links">
+        <div class="link-row">
+          <a href="#" target="_blank" class="map-button">マップ</a>
+          <a href="#" target="_blank" class="video-button">PR動画</a>
+        </div>
+
+        <div class="link-row">
+          <a href="#" target="_blank" class="hp-button">店舗HP</a>
+          <span class="hp-badge">店舗HP準備中</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- フッター固定エリア（横並び） -->
+  <footer class="footer-bar">
+    <nav class="navigation">
+      <a href="top.html">トップに戻る</a>
+    </nav>
+    <p>©2025 Local Connect</p>
+  </footer>
+
+  <script src="gacha.js"></script>
+  <script src="restaurants.js"></script>
+
+</body>
+</html>

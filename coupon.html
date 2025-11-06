@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>クーポン使用｜まちサポクーポンガチャ</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <video id="bg-video" autoplay muted loop playsinline>
+    <source src="videos/background.mp4" type="video/mp4">
+  </video>
+
+  <header class="header">
+    <img src="images/logo2.png" alt="まちサポクーポンガチャ ロゴ" class="logo2" />
+  </header>
+
+  <main class="coupon-list">
+    <p class="message-text">所持クーポン一覧</p>
+
+    <div id="coupon-container"></div>
+    <!-- ポップアップモーダル -->
+    <div id="restaurant-modal" class="modal hidden">
+      <div class="modal-content">
+        <button class="close-button">戻る</button>
+
+        <h2 class="modal-store-name">店舗名</h2>
+
+        <div class="modal-photo-slider">
+          <button id="prev-photo" class="photo-nav">←</button>
+
+          <img id="modal-photo" src="images/sample1.jpg" alt="店舗写真" />
+
+          <button id="next-photo" class="photo-nav">→</button>
+        </div>
+
+        <p class="modal-town">📍 所在地：〇〇町</p>
+        <p class="modal-status">クーポン：未使用</p>
+        <p class="modal-hours">🕒 営業時間：11:00〜22:00</p>
+
+        <div class="modal-links">
+          <div class="link-row">
+            <a href="#" target="_blank" class="map-button">マップ</a>
+            <a href="#" target="_blank" class="video-button">PR動画</a>
+          </div>
+
+          <div class="link-row">
+            <a href="#" target="_blank" class="hp-button">店舗HP</a>
+            <span class="hp-badge">店舗HP準備中</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <div class="coupon-card-wrapper">
+
+    <!-- クーポン拡大表示モーダル -->
+    <div id="coupon-modal" class="modal hidden">
+      <div class="modal-content">
+        <button class="close-button">戻る</button>
+        <h2 class="modal-store-name">ラーメン一番</h2>
+        <p class="modal-discount">200円オフ</p>
+        <ul class="modal-conditions">
+          <li>1000円以上注文の方</li>
+          <li>同伴者の方も対象</li>
+        </ul>
+        <p class="modal-expiry">有効期限：2025/12/15</p>
+
+        <div class="modal-key">
+          <label for="key-input">クーポン使用キー<br>店舗に確認の上、入力＆提示</label>
+          <input type="text" id="key-input" maxlength="5" placeholder="入力ください" />
+        </div>
+
+        <div class="modal-actions">
+          <button class="confirm-use-button">使う</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- フッター固定エリア（横並び） -->
+  <footer class="footer-bar">
+    <nav class="navigation">
+      <a href="top.html">トップに戻る</a>
+    </nav>
+    <p>©2025 Local Connect</p>
+  </footer>
+
+  <script src="coupon.js"></script>
+  
+</body>
+</html>

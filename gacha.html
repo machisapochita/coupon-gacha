@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>知多ガチャ</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <video id="bg-video" autoplay muted loop playsinline>
+    <source src="videos/background.mp4" type="video/mp4">
+  </video>
+
+  <header class="header">
+    <img src="images/logo2.png" alt="まちサポクーポンガチャ　おトクが当たる！ロゴ" class="logo1" />
+  </header>
+
+  <section>
+    <p class="message-text">PR動画を見てクーポンをゲット！</p>
+  </section>
+
+  <main class="main-content">
+    <div class="asort-wrapper">
+      <div class="status-area">
+        <p class="remaining-count">🎯 ガチャ残り回数：<span id="remaining-count"></span></p>
+
+        <div class="prize-row">
+          <div class="prize-box normal">
+            <span class="prize-label">ノーマル賞<br></span>
+            <span class="prize-count"><span id="normal-left"></span>／<span id="normal-total"></span></span>
+          </div>
+
+          <div class="prize-box rare">
+            <span class="prize-label">レア賞<br></span>
+            <span class="prize-count"><span id="rare-left"></span>／<span id="rare-total"></span></span>
+          </div>
+        </div>
+
+        <div class="prize-box last-one">
+          <span class="prize-label">ラストワン賞</span>
+          <span class="prize-comment">最後の１個でGET！</span>
+        </div>
+      </div>
+    </div>
+
+    <section class="coupon-summary" id="coupon-summary">
+      <p>獲得クーポン合計金額<br>
+        <span id="total-amount"></span>
+      </p>
+    </section>
+
+    <!-- ガチャ開始ボタン（画像＋パルス） -->
+    <div class="gacha-button-wrapper">
+      <img src="images/gacha-button.png" alt="ガチャ開始ボタン" id="gacha-button-image" class="gacha-button-image zoom" />
+    </div>
+
+    <!-- ▼ 有効期限表示を追加 -->
+    <div class="validity-info">
+      <p>🗓️ ガチャ有効期限：<span id="gacha-valid-until">2025年12月15日</span></p>
+      <p>💡 クーポン使用期限：<span id="coupon-valid-until">2025年12月31日</span></p>
+    </div>
+
+    <!-- ガチャ演出ポップアップ -->
+    <div id="gacha-popup" class="modal hidden">
+      <div class="modal-content gacha-flow">
+        <!-- 🎥 ガチャ演出動画（横幅いっぱい） -->
+        <div class="gacha-video-wrapper">
+          <video id="gacha-roll-video" autoplay muted playsinline>
+            <source src="videos/gacha.mp4" type="video/mp4">
+          </video>
+
+          <!-- 🎥 賞ごとの背景動画（ループ再生） -->
+          <div id="background-loop-video" class="background-loop hidden">
+            <video id="loop-video" autoplay muted loop playsinline>
+              <source src="" type="video/mp4">
+            </video>
+          </div>
+
+          <!-- 🏆 当選賞画像（中央にかぶせる） -->
+          <img id="prize-image" class="prize-image hidden" src="" alt="当選賞" />
+        </div>
+
+        <!-- 🎫 クーポンカード表示エリア（動画終了後に表示） -->
+        <div class="coupon-popup hidden" id="coupon-popup">
+          <button id="back-button" class="close-button">戻る</button>
+          <div class="coupon-card-display">
+            <h3 id="coupon-store-name">店舗名</h3>
+            <p class="coupon-type-label" id="coupon-type">賞種：ノーマル賞</p>
+            <p class="modal-discount" id="coupon-discount">200円オフ</p>
+            <ul id="coupon-conditions">
+              <li>1000円以上のご注文</li>
+            </ul>
+            <p class="coupon-card-expiry" id="coupon-expiry">有効期限：2025/12/31</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 📺 PR動画（縦型全画面表示） -->
+    <div id="pr-video-fullscreen" class="fullscreen-video hidden">
+      <video id="pr-video" autoplay muted playsinline>
+        <source src="" type="video/mp4">
+      </video>
+    </div>
+
+  </main>
+
+  <!-- フッター固定エリア（横並び） -->
+  <footer class="footer-bar">
+    <nav class="navigation">
+      <a href="top.html">トップに戻る</a>
+    </nav>
+    <p>©2025 Local Connect</p>
+  </footer>
+
+  <script src="gacha.js"></script>
+
+</body>
+</html>

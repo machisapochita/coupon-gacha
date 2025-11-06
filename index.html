@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ログイン｜まちサポクーポンガチャ</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <video id="bg-video" autoplay muted loop playsinline>
+    <source src="videos/background.mp4" type="video/mp4">
+  </video>
+
+  <header class="header">
+    <img src="images/logo1.png" alt="まちサポクーポンガチャ ロゴ" class="logo1" />
+  </header>
+
+  <main class="login-section">
+    <form id="login-form">
+      <input
+        type="text"
+        id="login-number"
+        name="login-number"
+        placeholder="ログインナンバー入力"
+        maxlength="8"
+        pattern="\d{8}"
+        required
+      />
+      <button type="submit" id="login-button">ログイン</button>
+    </form>
+  </main>
+
+  <div id="login-messages">
+    <p id="success-message" class="success-message hidden">ログイン成功！</p>
+    <p id="error-message" class="error-message hidden">ログインIDが間違っています。<br>再度お確かめください。</p>
+  </div>
+
+  <footer class="footer-bar-initial">
+    <p>©2025 Local Connect</p>
+  </footer>
+
+  <script src="index.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>トップメニュー｜まちサポクーポンガチャ</title>
+  <link rel="stylesheet" href="style.css" />
+  <script>
+    // ログイン状態チェック
+    const userId = localStorage.getItem("userId");
+    if (!userId) {
+      window.location.href = "index.html";
+    }
+  </script>
+</head>
+<body>
+  
+  <video id="bg-video" autoplay muted loop playsinline>
+    <source src="videos/background.mp4" type="video/mp4">
+  </video>
+
+  <header class="header">
+    <img src="images/logo1.png" alt="まちサポクーポンガチャ ロゴ" class="logo1" />
+  </header>
+
+  <main class="main-menu">
+    <nav class="menu-buttons">
+      <a href="gacha.html" class="menu-button gacha">ガチャをひく</a>
+      <a href="coupon.html" class="menu-button coupon">クーポン使用</a>
+      <a href="restaurants.html" class="menu-button restaurant">飲食店紹介</a>
+      <a href="salons.html" class="menu-button salon">サロン紹介</a>
+      <button id="logout-button" class="menu-button logout">ログアウト</button>
+    </nav>
+  </main>
+
+  <script src="top.js"></script>
+
+  <footer class="footer-bar-initial">
+    <p>©2025 Local Connect</p>
+  </footer>
+
+</body>
+</html>
