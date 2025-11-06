@@ -132,66 +132,80 @@ document.addEventListener("DOMContentLoaded", renderCoupons);
 
 document.addEventListener("DOMContentLoaded", () => {
   const confirmButton = document.querySelector(".confirm-use-button");
-  if (confirmButton) {
-    confirmButton.addEventListener("click", () => {
-      const modal = document.getElementById("coupon-modal");
-      const storeId = modal.dataset.storeId;
-      const enteredKey = document.getElementById("key-input").value.trim();
-      const correctKey = "11111";
+  if (!confirmButton) {
+    console.warn("confirm-use-button not found");
+    return;
+  }
 
-      if (enteredKey !== correctKey) {
-        alert("キーナンバーが正しくありません。店舗に確認してください。");
-        return;
-      }
+  // 二重登録防止（同一要素に対して一度だけ登録）
+  if (confirmButton.dataset.handlerAttached === "1") return;
+  confirmButton.dataset.handlerAttached = "1";
 
-      const userId = localStorage.getItem("userId");
-      const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`)) || [];
-      const restaurants = JSON.parse(localStorage.getItem(`restaurantData_${userId}`)) || [];
+  confirmButton.addEventListener("click", () => {
+    const modal = document.getElementById("coupon-modal");
+    const storeId = modal ? modal.dataset.storeId : null;
+    const enteredKeyEl = document.getElementById("key-input");
+    const enteredKey = enteredKeyEl ? enteredKeyEl.value.trim() : "";
+    const correctKey = "11111";
 
-      const coupon = coupons.find(c => c.storeId === storeId);
-      if (coupon) {
-        coupon.used = true;
+    if (enteredKey !== correctKey) {
+      alert("キーナンバーが正しくありません。店舗に確認してください。");
+      return;
+    }
 
-        // 優先順:
-        // 1) currentStore が存在すればそれを使う
-        // 2) coupon のデータを使う
-        // 3) modal.dataset.storeId のみで fallback
-        const storeObj = currentStore || restaurants.find(r => r.storeId === storeId) || null;
+    const userId = localStorage.getItem("userId");
+    const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`)) || [];
+    const restaurants = JSON.parse(localStorage.getItem(`restaurantData_${userId}`)) || [];
 
-        const finalSalonId = (storeObj && storeObj.salonId) ? storeObj.salonId : (coupon.salonId || localStorage.getItem("salonId") || "未設定");
-        const finalStoreId = (storeObj && storeObj.storeId) ? storeObj.storeId : (coupon.storeId || storeId || "未設定");
-        const finalStoreName = (storeObj && storeObj.name) ? storeObj.name : (coupon.storeName || "未設定");
-        const finalPrizeType = (storeObj && storeObj.prizeType) ? storeObj.prizeType : (coupon.type || "未設定");
+    const coupon = coupons.find(c => c.storeId === storeId);
+    if (!coupon) {
+      console.warn("coupon not found for storeId:", storeId);
+      return;
+    }
 
-        console.log("confirm-use: sending usage log", { userId, salonId: finalSalonId, storeId: finalStoreId, storeName: finalStoreName, prizeType: finalPrizeType });
+    // マークを先に付けて保存（UI更新のため）
+    coupon.used = true;
 
-        sendUsageLog({
-          userId,
-          storeId: finalStoreId,
-          storeName: finalStoreName,
-          prizeType: finalPrizeType,
-          salonId: finalSalonId
-        })
-        .then(res => {
-          console.log("sendUsageLog result:", res);
-        })
-        .catch(err => {
-          console.error("sendUsageLog error:", err);
-        });
-      }
+    // 該当店舗情報があれば更新
+    const storeObj = currentStore || restaurants.find(r => r.storeId === storeId) || null;
+    if (storeObj) {
+      storeObj.couponUsed = true;
+    }
 
-      if (store) store.couponUsed = true;
+    // 優先的に final値を決定
+    const finalSalonId = (storeObj && storeObj.salonId) ? storeObj.salonId : (coupon.salonId || localStorage.getItem("salonId") || "未設定");
+    const finalStoreId = (storeObj && storeObj.storeId) ? storeObj.storeId : (coupon.storeId || storeId || "未設定");
+    const finalStoreName = (storeObj && storeObj.name) ? storeObj.name : (coupon.storeName || "未設定");
+    const finalPrizeType = (storeObj && storeObj.prizeType) ? storeObj.prizeType : (coupon.type || "未設定");
+
+    console.log("confirm-use: sending usage log", { userId, salonId: finalSalonId, storeId: finalStoreId, storeName: finalStoreName, prizeType: finalPrizeType });
+
+    // 送信は一回だけ（sendUsageLog は Promise を返す）
+    sendUsageLog({
+      userId,
+      storeId: finalStoreId,
+      storeName: finalStoreName,
+      prizeType: finalPrizeType,
+      salonId: finalSalonId
+    })
+    .then(res => {
+      console.log("sendUsageLog result:", res);
+    })
+    .catch(err => {
+      console.error("sendUsageLog error:", err);
+    })
+    .finally(() => {
+      // 保存・UI更新は必ず実行
       localStorage.setItem(`myCoupons_${userId}`, JSON.stringify(coupons));
       localStorage.setItem(`restaurantData_${userId}`, JSON.stringify(restaurants));
 
+      // モーダル閉じて UI 更新
+      if (modal) modal.classList.add("hidden");
       showThankYou(() => {
-        modal.classList.add("hidden");
         renderCoupons();
       });
     });
-  } else {
-    console.warn("confirm-use-button not found");
-  }
+  });
 });
 
 function getSalonId(prizeType) {
