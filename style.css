@@ -5,22 +5,74 @@
 }
 
 body {
-  margin: 0;
-  padding: 0;
-
+  margin-bottom: 0;
+  padding-bottom: 0px;
   font-family: sans-serif;
   text-align: center;
 }
 
-#bg-video {
+/* ページ全体の背景画像（画面サイズに関係なく cover） */
+/* 背景画像を常に固定（スクロールで動かない）にする実装 */
+/* body.bg-image の直接背景は無効にして、::before を固定要素にすることで
+   モバイルの background-attachment: fixed の非対応を回避します。 */
+body.bg-image {
+  /* 背景は疑似要素で表示するためここは透明にする */
+  background: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* 固定背景レイヤ（常に画面全体を覆う） */
+body.bg-image::before {
+  content: "";
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  object-fit: cover;
-  z-index: -1; /* 背景として後ろに配置 */
-  pointer-events: none; /* ユーザー操作を無効化 */
+  inset: 0; /* top:0; right:0; bottom:0; left:0; と同じ */
+  background-image: url("images/background.png");
+  background-size: cover;        /* 画面全体を隙間なく覆う */
+  background-position: center;
+  background-repeat: no-repeat;
+  background-color: #000;        /* フォールバック色 */
+  z-index: -1;                   /* コンテンツの背後に置く */
+  pointer-events: none;          /* 背景でのタッチを無効化 */
+  will-change: transform;        /* パフォーマンスヒント */
+}
+
+/* 既存のレイアウト関連（footer と被らないための余白確保） */
+:root {
+  --footer-height: 50px;
+  --header-height: 50px;
+}
+
+html, body {
+  height: 100%;
+  margin-bottom: 0px;
+  padding: 0;
+}
+
+.header {
+  flex: 0 0 var(--header-height);
+  box-sizing: border-box;
+}
+
+.main-menu, .restaurant-list, .coupon-list, .main {
+  flex: 1 0 auto;
+  box-sizing: border-box;
+  padding: 0px 0px;
+  padding-bottom: calc(var(--footer-height) + 16px);
+}
+
+.footer-bar-initial, .footer-bar {
+  flex: 0 0 var(--footer-height);
+  height: var(--footer-height);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  width: 100%;
 }
 
 /*　ログイン画面　*/
@@ -79,7 +131,6 @@ body {
   font-size: 6vw;
 }
 
-
 /* トップ画面関係　*/
 
 .main-menu {
@@ -129,6 +180,7 @@ body {
 .menu-button.logout {
   background-color: #999;
   margin-top: 30px;
+  margin-bottom: 60px;
   border: none;
 }
 
@@ -169,11 +221,13 @@ body {
 
 .header {
   padding: 8px 15px 0 15px;
-  margin-bottom: 15px;
+  margin-bottom: 0px;
 }
 
 .logo1 {
   max-width: 100%;
+  margin-top: 15px;
+  margin-bottom: 15px;
 }
 
 .logo2 {
@@ -1146,7 +1200,7 @@ body {
 /*　飲食店紹介ページ　*/
 
 .restaurant-list {
-  margin-bottom: 80px;
+  margin-bottom: 0px;
 }
 
 .restaurant-list h2 {
@@ -1157,7 +1211,7 @@ body {
 }
 
 .message-text {
-  margin: 10px 0 10px 0;
+  margin: 0px 0 10px 0;
   font-size: 5vw;
   background-color: #f9f9f9;
   border: 1px solid #ddd;
