@@ -301,6 +301,20 @@ function startGachaSequence() {
   updateRestaurantData(store);
   addCoupon(store, prizeType);
 
+  // --- ここでガチャ実行ログを必ず送る（Apps Script の doPost が受け取る形式） ---
+  try {
+    const uid = localStorage.getItem("userId") || "未設定";
+    const salonId = getSalonId(); // return 既存の salonId or fallback
+    console.log("sending gacha viewed log", { userId: uid, storeId: store.storeId, storeName: store.name, prizeType, salonId });
+    // sendVideoLog は fetch を return するので Promise を受け取れる
+    sendVideoLog({ userId: uid, storeId: store.storeId, storeName: store.name, prizeType, salonId })
+      .then(res => console.log("sendVideoLog ok:", res))
+      .catch(err => console.error("sendVideoLog error:", err));
+  } catch (e) {
+    console.warn("gacha log send failed:", e);
+  }
+  // --- ログ送信ここまで ---
+  
   // 2) 賞種に応じたガチャ演出動画を再生
   const gachaSrcMap = {
     normal: "videos/gacha-normal.mp4",
