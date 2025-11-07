@@ -263,124 +263,176 @@ function startGachaSequence() {
   const prVideo = document.getElementById("pr-video");
   const couponPopup = document.getElementById("coupon-popup");
   const backButton = document.getElementById("back-button");
+  // ループ背景用 video（coupon-popup 内で再生）
+  const loopVideo = document.getElementById("loop-video");
+  const loopContainer = document.getElementById("background-loop-video");
 
-  // 初期化
+  // 初期 UI セット
   popup.classList.remove("hidden");
   prizeImage.classList.add("hidden");
   couponPopup.classList.add("hidden");
   backButton.classList.add("hidden");
   prVideoContainer.classList.add("hidden");
+  if (loopContainer) loopContainer.classList.add("hidden");
 
-  // 🎥 ラストワン賞なら別動画を再生
-  const isLastOne = isLastOneReady();
-  gachaVideo.src = isLastOne ? "videos/gacha2.mp4" : "videos/gacha.mp4";
-  gachaVideo.load();
-  gachaVideo.currentTime = 0;
-  gachaVideo.play();
+  // 1) 抽選を先に行う（賞種と店舗）
+  const prizeType = drawPrizeType();
+  const store = drawStore(prizeType);
 
-  // 6秒後：賞種抽選 → 店舗抽選 → 演出開始
-  setTimeout(async () => {
-    const prizeType = drawPrizeType();
-    const store = drawStore(prizeType); // ✅ 引数付きで1回だけ抽選
+  console.log("抽選された賞種:", prizeType);
+  console.log("選ばれた店舗:", store);
 
-    console.log("抽選された賞種:", prizeType);
-    console.log("選ばれた店舗:", store);
+  if (!store) {
+    alert("抽選対象の店舗がありません。");
+    popup.classList.add("hidden");
+    return;
+  }
 
-    if (!store) {
-      alert("抽選対象の店舗がありません。");
-      return;
-    }
+  // gachaCompleted フラグ
+  if (prizeType === "last-one") {
+    localStorage.setItem("gachaCompleted", "true");
+  } else {
+    localStorage.setItem("gachaCompleted", "false");
+  }
 
-    if (prizeType === "last-one") {
-      localStorage.setItem("gachaCompleted", "true");
-    } else {
-      localStorage.setItem("gachaCompleted", "false");
-    }
+  // 当選店舗をアンロックしてクーポンを用意（PR 再生前に状態を更新）
+  store.prizeType = prizeType;
+  store.unlocked = true;
+  updateRestaurantData(store);
+  addCoupon(store, prizeType);
 
-    const prizeSrcMap = {
-      normal: "images/prize_normal.png",
-      rare: "images/prize_rare.png",
-      "last-one": "images/prize_lastone.png"
-    };
-    const prizeSrc = prizeSrcMap[prizeType] || "images/prize_normal.png";
+  // 2) 賞種に応じたガチャ演出動画を再生
+  const gachaSrcMap = {
+    normal: "videos/gacha-normal.mp4",
+    rare: "videos/gacha-rare.mp4",
+    "last-one": "videos/gacha-last-one.mp4"
+  };
+  const gachaSrc = gachaSrcMap[prizeType] || gachaSrcMap.normal;
 
-    prizeImage.src = prizeSrc;
-    prizeImage.classList.remove("hidden");
-    prizeImage.classList.add("prize-image", "pop-in");
+  // 再生が終わったら PR を再生するシーケンスを設定
+  const onGachaEnded = async () => {
+    gachaVideo.removeEventListener("ended", onGachaEnded);
 
-    // ループ背景動画は事前に preload してから play（軽量化）
-    const loopSrcMap = {
-      normal: "videos/gacha_normal.mp4",
-      rare: "videos/gacha_rare.mp4",
-      "last-one": "videos/gacha_lastone.mp4"
-    };
-    const loopSrc = loopSrcMap[prizeType] || "videos/gacha_normal.mp4";
-
-    try {
-      // 小さい preload（metadata）で素早く読み始め、再生直前に canplaythrough を期待
-      await preloadVideo(loopVideo, loopSrc, { preload: 'metadata', timeout: 3000 });
-      loopVideo.currentTime = 0;
-      loopVideo.muted = true; // autoplay を確実にする場合は最初は muted
-      await loopVideo.play().catch(() => { /* 再生失敗でも進める */ });
-      loopContainer.classList.remove("hidden");
-    } catch (err) {
-      console.warn("loop video preload/play failed:", err);
-      loopContainer.classList.remove("hidden");
-    }
-
-    // 2秒後：PR動画開始
-    setTimeout(async () => {
-      // store 更新等
-      store.prizeType = prizeType;
-      store.unlocked = true;
-      updateRestaurantData(store);
-      addCoupon(store, prizeType);
-
-      if (store.videoUrl) {
-        // PR動画は事前に full preload (auto) してから再生する（可能なら低ビットレート版を用意）
-        try {
-          // ここは 'auto' にしてできるだけ読み込む
-          await preloadVideo(prVideo, store.videoUrl, { preload: 'auto', timeout: 7000 });
-        } catch (e) {
-          console.warn("prVideo preload warning:", e);
-        }
-
-        prVideo.muted = false; // ユーザー起点なら音声再生を許可
-        prVideoContainer.classList.remove("hidden");
-
-        // ended イベントで表示遷移を制御
-        const onEnded = () => {
-          prVideo.removeEventListener('ended', onEnded);
-          prVideoContainer.classList.add('hidden');
-          showCouponCard(store, prizeType);
-          updateStatusArea();
-        };
-        prVideo.addEventListener('ended', onEnded);
-
-        // 再生開始（ユーザー操作起点なら play は成功しやすい）
-        prVideo.currentTime = 0;
-        try {
-          await prVideo.play();
-        } catch (playErr) {
-          console.warn("prVideo play failed:", playErr);
-          // 再生できない場合はUIで代替表示に遷移
-          prVideoContainer.classList.add('hidden');
-          showCouponCard(store, prizeType);
-          updateStatusArea();
-        }
-      } else {
-        console.warn("動画URLが未設定の店舗です");
-        showCouponCard(store, prizeType);
-        updateStatusArea();
+    // 3) 当選店舗の PR 動画を再生
+    if (store.videoUrl) {
+      try {
+        // 事前読み込み（可能な限り）してから再生
+        await preloadVideo(prVideo, store.videoUrl, { preload: "auto", timeout: 7000 });
+      } catch (e) {
+        console.warn("PR video preload failed:", e);
       }
-    }, 3000);
-  }, 4500);
+
+      prVideoContainer.classList.remove("hidden");
+      prVideo.currentTime = 0;
+      // PR は音声ありで再生を試みる
+      try { prVideo.muted = false; prVideo.volume = 1; } catch(e) {}
+
+      const onPrEnded = () => {
+        prVideo.removeEventListener("ended", onPrEnded);
+        prVideoContainer.classList.add("hidden");
+
+        // 4) PR 終了後に coupon-popup を開く & 賞種に応じたループ動画を再生
+        openCouponPopupWithLoop(prizeType, store);
+      };
+      prVideo.addEventListener("ended", onPrEnded);
+
+      try {
+        const prRes = await tryPlayWithSoundFallback(prVideo);
+        if (prRes && prRes.muted) {
+          console.info("prVideo playing muted (user gesture required to enable audio)");
+        }
+      } catch (err) {
+        console.warn("prVideo play failed entirely:", err);
+        // 再生できない場合は直ちにクーポン表示に移行
+        prVideoContainer.classList.add("hidden");
+        openCouponPopupWithLoop(prizeType, store);
+      }
+    } else {
+      console.warn("動画URLが未設定の店舗です");
+      openCouponPopupWithLoop(prizeType, store);
+    }
+  };
+
+  // gacha video を preload -> play
+  (async () => {
+    try {
+      await preloadVideo(gachaVideo, gachaSrc, { preload: "metadata", timeout: 4000 });
+    } catch (e) {
+      console.warn("gacha video preload warning:", e);
+    }
+    gachaVideo.currentTime = 0;
+    gachaVideo.addEventListener("ended", onGachaEnded);
+    try {
+      const res = await tryPlayWithSoundFallback(gachaVideo);
+      if (res && res.muted) {
+        console.info("gachaVideo playing muted (user gesture required to enable audio)");
+      }
+    } catch (err) {
+      console.warn("gachaVideo play failed entirely:", err);
+      // 再生できない場合は直接 PR に遷移
+      onGachaEnded();
+    }
+  })();
+}
+
+// 補助: 賞種に応じた coupon-popup 表示とループ動画再生
+function openCouponPopupWithLoop(prizeType, store) {
+  const couponPopup = document.getElementById("coupon-popup");
+  const loopVideo = document.getElementById("loop-video");
+  const loopContainer = document.getElementById("background-loop-video");
+  const prizeImage = document.getElementById("prize-image");
+
+  // prize-image は表示しない（仕様変更）
+  if (prizeImage) prizeImage.classList.add("hidden");
+
+  // クーポン内容表示
+  document.getElementById("coupon-store-name").textContent = store.name;
+  const coupon = store.coupon || { discount: 0, conditions: [], expiry: "" };
+  document.getElementById("coupon-discount").textContent = `${coupon.discount}円オフ`;
+  document.getElementById("coupon-conditions").innerHTML = (coupon.conditions || []).map(c => `<li>${c}</li>`).join("");
+  document.getElementById("coupon-expiry").textContent = `有効期限：${coupon.expiry}`;
+
+  // 賞種に応じたループソース
+  const loopSrcMap = {
+    normal: "videos/coupon-normal.mp4",
+    rare: "videos/coupon-rare.mp4",
+    "last-one": "videos/coupon-last-one.mp4"
+  };
+  const loopSrc = loopSrcMap[prizeType] || loopSrcMap.normal;
+
+  // ループ動画を preload -> 再生（ミュートしてループ）
+  (async () => {
+    if (loopContainer) loopContainer.classList.remove("hidden");
+    try {
+      await preloadVideo(loopVideo, loopSrc, { preload: "metadata", timeout: 3000 });
+    } catch (e) {
+      console.warn("loop video preload failed:", e);
+    }
+    try {
+      loopVideo.loop = true;
+      loopVideo.muted = true;
+      loopVideo.currentTime = 0;
+      await loopVideo.play().catch(() => { /* ignore */ });
+    } catch (e) {
+      console.warn("loopVideo play error:", e);
+    }
+  })();
+
+  couponPopup.classList.remove("hidden");
+
+  // 戻るボタンの動作を確実に登録しておく
+  // （この関数経由で開くケースでは setupBackButton が未登録の可能性があるため）
+  try { setupBackButton(); } catch(e) { console.warn("setupBackButton failed:", e); }
+
+  const backButton = document.getElementById("back-button");
+  if (backButton) backButton.classList.remove("hidden");
+  updateStatusArea();
 }
 
 function addCoupon(store, prizeType) {
-const userId = localStorage.getItem("userId");
-const key = `myCoupons_${userId}`;
-const coupons = JSON.parse(localStorage.getItem(key)) || [];
+  const userId = localStorage.getItem("userId");
+  const key = `myCoupons_${userId}`;
+  const coupons = JSON.parse(localStorage.getItem(key)) || [];
 
   // ✅ storeId がすでに存在するかチェック
   const alreadyExists = coupons.some(c => c.storeId === store.storeId);
@@ -389,10 +441,10 @@ const coupons = JSON.parse(localStorage.getItem(key)) || [];
     return;
   }
 
-  // ✅ store.conditions が存在しない場合は追加しない
-  if (!store.conditions || !Array.isArray(store.conditions)) {
-    console.warn("店舗条件が未定義のため、クーポンを追加しません:", store.storeId);
-    return;
+  // store.coupon があることを期待（なければ基本情報を埋める）
+  if (!store.coupon) {
+    console.warn("store.coupon が未設定のため既定値を使用します:", store.storeId);
+    store.coupon = { discount: 0, conditions: [], expiry: "" };
   }
 
   const newCoupon = {
@@ -407,6 +459,14 @@ const coupons = JSON.parse(localStorage.getItem(key)) || [];
 
   coupons.push(newCoupon);
   localStorage.setItem(key, JSON.stringify(coupons));
+
+  // UI の合計金額を更新（クーポン追加直後に反映）
+  try {
+    const totalAmount = coupons.reduce((sum, c) => sum + (c.discount || 0), 0);
+    updateCouponSummary(totalAmount);
+  } catch (e) {
+    console.warn("updateCouponSummary failed:", e);
+  }
 }
 
 // ３．重賞の抽選
@@ -744,4 +804,25 @@ function preloadVideo(videoEl, url, opts = {}) {
       // 既に同じ src の場合もイベント待ち
     }
   });
+}
+
+// 追加: 音声つき再生を試み、失敗したら無音で再生するユーティリティ
+function tryPlayWithSoundFallback(videoEl) {
+  if (!videoEl) return Promise.reject(new Error("no video element"));
+  // 優先で音声ありを試す
+  videoEl.muted = false;
+  try { videoEl.volume = 1; } catch(e) {}
+  return videoEl.play().then(() => ({ muted: false }))
+    .catch(async (err) => {
+      console.warn("play with sound failed, falling back to muted play:", err);
+      // 無音にして再生（少なくとも映像は見せる）
+      videoEl.muted = true;
+      try {
+        await videoEl.play();
+        return { muted: true };
+      } catch (err2) {
+        console.error("muted play also failed:", err2);
+        throw err2;
+      }
+    });
 }
