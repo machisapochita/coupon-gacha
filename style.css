@@ -41,8 +41,8 @@ body.bg-image::before {
 
 /* 既存のレイアウト関連（footer と被らないための余白確保） */
 :root {
-  --footer-height: 70px;
-  --header-height: 70px;
+  --header-height: 72px; /* 既定値と合わせる */
+  --footer-height: 64px;
 }
 
 html, body {
@@ -627,6 +627,47 @@ html, body {
 #pr-video {
   height: 100vh;
   width: auto;
+}
+
+/* モバイルのノッチやステータスバーを避ける（Safari 用の constant() フォールバック含む） */
+#pr-video-fullscreen,
+.pr-video-fullscreen {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: calc(env(safe-area-inset-top, 0px) + var(--header-height));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--footer-height));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  box-sizing: border-box;
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* 実際の video 要素はコンテナ内で上下をはみ出さずに表示 */
+#pr-video-fullscreen video,
+.pr-video-fullscreen video,
+#background-loop-video video,
+.background-loop-video video {
+  width: 100%;
+  height: auto;
+  max-height: calc(100vh - var(--header-height) - var(--footer-height) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  object-fit: contain; /* cover ではなく contain にして上下隠れを防止（見た目は要調整） */
+  display: block;
+}
+
+/* iOS Safari 古い実装向けフォールバック */
+@supports (padding: constant(safe-area-inset-top)) {
+  #pr-video-fullscreen,
+  .pr-video-fullscreen {
+    top: calc(constant(safe-area-inset-top) + var(--header-height));
+    bottom: calc(constant(safe-area-inset-bottom) + var(--footer-height));
+    padding-left: constant(safe-area-inset-left);
+    padding-right: constant(safe-area-inset-right);
+  }
 }
 
 .hidden {
