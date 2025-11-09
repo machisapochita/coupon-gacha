@@ -41,8 +41,8 @@ body.bg-image::before {
 
 /* 既存のレイアウト関連（footer と被らないための余白確保） */
 :root {
-  --footer-height: 50px;
-  --header-height: 50px;
+  --footer-height: 70px;
+  --header-height: 70px;
 }
 
 html, body {
@@ -180,7 +180,7 @@ html, body {
 .menu-button.logout {
   background-color: #999;
   margin-top: 30px;
-  margin-bottom: 60px;
+  margin-bottom: 80px;
   border: none;
 }
 
