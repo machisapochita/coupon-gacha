@@ -20,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function syncAfterLogin(userId, timeoutMs = 3000) {
     if (!userId) return Promise.resolve({ skipped: true, reason: "no userId" });
 
-    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxmVyp4bL0XC2-he0HNL29YZckIKXMUAG-_IMrxUXL5dPnTjgwBJigg9iAQnE1lI4DM/exec";
+    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxsJh03GE1CGgB9a8SUD2IdlsjoGZfKPlocSA7E-qNeezltL3NDPIfy9GRyb5_A-n8/exec";
     const baseUrl = (window.LOG_URL || LOG_URL_FALLBACK);
     const url = baseUrl + "?action=getState&userId=" + encodeURIComponent(userId);
 

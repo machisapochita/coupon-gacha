@@ -244,8 +244,13 @@ function initGachaUI() {
 }
 
 // DOMContentLoaded 時に initGachaUI を確実に呼ぶ（既存の safeGachaInit でも呼ばれる）
-document.addEventListener("DOMContentLoaded", () => {
-  try { initGachaUI(); } catch(e) { console.warn("DOMContentLoaded initGachaUI failed:", e); }
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    // initGachaUI が非同期処理を含む可能性がある場合に await しても安全
+    await (typeof initGachaUI === "function" ? initGachaUI() : Promise.resolve());
+  } catch (e) {
+    console.warn("DOMContentLoaded initGachaUI failed:", e);
+  }
 });
 
 const currentData = JSON.parse(localStorage.getItem("restaurantData"));
@@ -370,6 +375,9 @@ function startGachaSequence() {
         restaurantData: JSON.parse(localStorage.getItem(`restaurantData_${uid}`) || "[]"),
         gachaState: JSON.parse(localStorage.getItem(`gachaState_${uid}`) || "{}")
       };
+      // updatedAt を付けて投げる（server 側でも上書き対策に利用）
+      snapshot.updatedAt = Date.now();
+      saveGachaStateToServer(snapshot).then(r => console.info("saved snapshot", r)).catch(e => console.warn("save failed", e));
       stateSync.resume();
       // flushNow を使えば即時送信を待てる（必要なら then で処理）
       stateSync.requestSave(snapshot);
@@ -851,7 +859,7 @@ function updateRestaurantData(updatedStore) {
 
 /* --- 追加: 一元的な state 保存ユーティリティ (debounce + dedupe + flushPromise) --- */
 const stateSync = (function () {
-  const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbyeXtfLCqsp3aH6V2h7phVw14MRF803iprYx1aPgL6t8wX0Zfkok4xt6KmG4pusz2Hg/exec";
+  const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxsJh03GE1CGgB9a8SUD2IdlsjoGZfKPlocSA7E-qNeezltL3NDPIfy9GRyb5_A-n8/exec";
   const getUrl = () => (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
 
   let timer = null;
@@ -1195,17 +1203,20 @@ function removeSkipButton() {
 
 // simple logger POST helper (Apps Script expects form-urlencoded 'data=')
 function postToLog(payload) {
-  const LOG_URL_FALLBACK = ""; // 必要ならここにデフォルトの Apps Script URL を入れる
-  const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
+  const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || "");
   if (!url) {
-    // ログ先未設定なら resolved Promise を返す（非同期パスを途切れさせない）
-    return Promise.reject(new Error("LOG_URL not configured"));
+    console.warn("postToLog: LOG_URL not configured — skipping network send, payload:", payload);
+    // ここでは resolved Promise を返してエラーを投げないようにする
+    return Promise.resolve({ skipped: true });
   }
   return fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
     body: "data=" + encodeURIComponent(JSON.stringify(payload))
-  }).then(r => r.text());
+  }).then(r => r.text()).catch(err => {
+    console.warn("postToLog fetch failed:", err);
+    throw err;
+  });
 }
 
 function sendVideoLog(payload) {
@@ -1217,6 +1228,59 @@ function sendVideoLog(payload) {
 function sendGachaLog(payload) {
   const p = Object.assign({ eventType: "gacha", ts: Date.now() }, payload);
   return postToLog(p);
+}
+
+async function loadGachaStateFromServer(userId) {
+  const urlBase = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || "");
+  if (!urlBase) {
+    console.warn("loadGachaStateFromServer: LOG_URL not configured");
+    return null;
+  }
+  try {
+    const url = urlBase + "?action=getState&userId=" + encodeURIComponent(userId);
+    const res = await fetch(url);
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      console.warn("loadGachaStateFromServer: parse error", e, text);
+      return null;
+    }
+  } catch (e) {
+    console.warn("loadGachaStateFromServer fetch failed", e);
+    return null;
+  }
+}
+
+function applyServerStateToLocal(payload, userId) {
+  // payload: { status, found, state: { coupons, restaurantData, gachaState, updatedAt } }
+  if (!payload || !payload.found || !payload.state) return false;
+  const server = payload.state;
+  // compare updatedAt to avoid overwriting newer local data
+  const serverTs = server.updatedAt || server._serverReceivedAt || 0;
+  // read local snapshot ts if any
+  const localGacha = JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}");
+  const localTs = localGacha && localGacha.updatedAt ? localGacha.updatedAt : 0;
+  if (serverTs && localTs && localTs > serverTs) {
+    console.info("local state is newer than server — skipping overwrite");
+    return false;
+  }
+  // apply coupons
+  if (server.coupons) {
+    try { localStorage.setItem(`myCoupons_${userId}`, JSON.stringify(server.coupons)); } catch(e){ console.warn(e); }
+  }
+  if (server.restaurantData) {
+    try { localStorage.setItem(`restaurantData_${userId}`, JSON.stringify(server.restaurantData)); } catch(e){ console.warn(e); }
+  }
+  if (server.gachaState) {
+    try {
+      // preserve updatedAt
+      const g = Object.assign({}, server.gachaState);
+      if (!g.updatedAt) g.updatedAt = serverTs || Date.now();
+      localStorage.setItem(`gachaState_${userId}`, JSON.stringify(g));
+    } catch(e){ console.warn(e); }
+  }
+  return true;
 }
 
 
