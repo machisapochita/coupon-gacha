@@ -647,7 +647,7 @@ function updateGachaButtonState() {
     gachaButtonImage.onclick = () => {};
   } else if (state.prizePool.length === 0) {
     gachaButtonImage.src = "images/gacha-lastone-button.png";
-    gachaButtonImage.classList.add("zoom", "rainbow");
+    gachaButtonImage.classList.add("zoom");
     gachaButtonImage.onclick = () => startGachaSequence();
   } else {
     gachaButtonImage.src = "images/gacha-button.png";
