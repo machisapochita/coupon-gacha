@@ -530,6 +530,15 @@ function drawPrizeType() {
     if (state.remaining > 0) {
       state.remaining--;
       localStorage.setItem(gachaKey, JSON.stringify(state));
+      // サーバに保存
+      try {
+        const snapshot = {
+          coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
+          restaurantData: JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]"),
+          gachaState: JSON.parse(localStorage.getItem(gachaKey) || "{}")
+        };
+        saveGachaStateToServer(snapshot).catch(e => console.warn("save after drawPrizeType failed:", e));
+      } catch (e) { console.warn(e); }
       return "last-one";
     } else {
       console.warn("ガチャはすでに終了しています");
@@ -542,6 +551,17 @@ function drawPrizeType() {
   state.prizePool = pool;
   state.remaining = (state.remaining || 10) - 1;
   localStorage.setItem(gachaKey, JSON.stringify(state));
+
+  // サーバに保存（重要）
+  try {
+    const snapshot = {
+      coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
+      restaurantData: JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]"),
+      gachaState: JSON.parse(localStorage.getItem(gachaKey) || "{}")
+    };
+    saveGachaStateToServer(snapshot).catch(e => console.warn("save after drawPrizeType failed:", e));
+  } catch (e) { console.warn(e); }
+
   return prize;
 }
 
@@ -575,6 +595,16 @@ function drawStore(prizeType) {
   // 🎯 抽選済みIDとして記録
   state.drawnStoreIds.push(selectedStore.storeId);
   localStorage.setItem(gachaKey, JSON.stringify(state));
+
+  // サーバに保存（drawnStoreIds 更新の反映）
+  try {
+    const snapshot = {
+      coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
+      restaurantData: JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]"),
+      gachaState: JSON.parse(localStorage.getItem(gachaKey) || "{}")
+    };
+    saveGachaStateToServer(snapshot).catch(e => console.warn("save after drawStore failed:", e));
+  } catch (e) { console.warn(e); }
 
   console.log("選ばれた店舗:", selectedStore);
   return selectedStore;
@@ -722,13 +752,28 @@ function getSalonId() {
   return localStorage.getItem("salonId") || "salon000"; // fallback付き
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   const userId = localStorage.getItem("userId");
   const gachaKey = `gachaState_${userId}`;
   const restaurantKey = `restaurantData_${userId}`;
   const couponKey = `myCoupons_${userId}`;
 
-  // ✅ gachaState の初期化（必要なら）
+  // 1) 可能ならサーバーから state をフェッチしてローカルを完全上書き（サーバ優先）
+  if (userId) {
+    try {
+      const res = await loadGachaStateFromServer(userId);
+      if (res && res.status === "OK" && res.found && res.state) {
+        applyServerStateToLocal(res.state, userId);
+        console.log("Applied server state on gacha load for user:", userId);
+      } else {
+        console.info("No server state or fetch response:", res);
+      }
+    } catch (e) {
+      console.warn("Failed to load server state on gacha load:", e);
+    }
+  }
+
+  // 2) その後にローカル初期化（サーバに無ければ初期化する）
   if (!localStorage.getItem(gachaKey)) {
     const gachaState = {
       remaining: 10,
@@ -738,17 +783,16 @@ document.addEventListener("DOMContentLoaded", () => {
     localStorage.setItem(gachaKey, JSON.stringify(gachaState));
   }
 
-  // ✅ restaurantData の初期化（必要なら）
   if (!localStorage.getItem(restaurantKey)) {
     localStorage.setItem(restaurantKey, JSON.stringify(window.initialRestaurantData));
   }
 
-  // ✅ クーポン合計金額の復元
+  // クーポン合計金額の復元
   const coupons = JSON.parse(localStorage.getItem(couponKey)) || [];
   const totalAmount = coupons.reduce((sum, c) => sum + c.discount, 0);
   updateCouponSummary(totalAmount);
 
-  // ✅ 表示更新
+  // 表示更新
   updateStatusArea();
   updateGachaButtonState();
 });
