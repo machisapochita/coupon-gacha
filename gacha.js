@@ -890,3 +890,82 @@ function removeSkipButton() {
   }
 }
 // --- 追加ここまで ---
+
+/**
+ * サーバ（Apps Script）へ gacha 状態を保存する
+ * payload は { coupons, restaurantData, gachaState } のようなスナップショットを想定
+ */
+function saveGachaStateToServer(stateObj) {
+  try {
+    const uid = localStorage.getItem("userId");
+    if (!uid) return Promise.resolve({ skipped: true, reason: "no userId" });
+    // LOG_URL をグローバルで使っている想定（coupon.js に定義済み）
+    if (!window.LOG_URL) {
+      console.warn("saveGachaStateToServer: LOG_URL not defined");
+      return Promise.resolve({ skipped: true, reason: "no LOG_URL" });
+    }
+    const payload = { eventType: "saveState", userId: uid, state: stateObj };
+    return fetch(window.LOG_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body: "data=" + encodeURIComponent(JSON.stringify(payload))
+    }).then(r => r.text().then(t => {
+      try { return JSON.parse(t); } catch (e) { return { raw: t }; }
+    }));
+  } catch (e) {
+    return Promise.reject(e);
+  }
+}
+
+/**
+ * サーバから保存済み state を取得する
+ * doGet?action=getState&userId=... を想定
+ */
+function loadGachaStateFromServer(userId) {
+  try {
+    if (!userId) return Promise.resolve({ found: false, state: {} });
+    if (!window.LOG_URL) {
+      console.warn("loadGachaStateFromServer: LOG_URL not defined");
+      return Promise.resolve({ status: "no-log-url", found: false, state: {} });
+    }
+    const url = window.LOG_URL + "?action=getState&userId=" + encodeURIComponent(userId);
+    return fetch(url, { method: "GET" })
+      .then(r => r.text())
+      .then(text => {
+        try { return JSON.parse(text); } catch (e) { return { status: "parse-error", raw: text }; }
+      });
+  } catch (e) {
+    return Promise.reject(e);
+  }
+}
+
+/**
+ * サーバから取得した state をローカルに適用する簡易マージ
+ * - ローカルにデータが無ければ server を採用する挙動
+ */
+function mergeAndApplyState(serverState) {
+  try {
+    const uid = localStorage.getItem("userId");
+    if (!uid || !serverState) return;
+    const couponsKey = `myCoupons_${uid}`;
+    const restaurantsKey = `restaurantData_${uid}`;
+    const gachaKey = `gachaState_${uid}`;
+
+    const localCoupons = JSON.parse(localStorage.getItem(couponsKey) || "null");
+    if ((!localCoupons || localCoupons.length === 0) && serverState.coupons) {
+      localStorage.setItem(couponsKey, JSON.stringify(serverState.coupons));
+    }
+
+    const localRestaurants = JSON.parse(localStorage.getItem(restaurantsKey) || "null");
+    if ((!localRestaurants || localRestaurants.length === 0) && serverState.restaurantData) {
+      localStorage.setItem(restaurantsKey, JSON.stringify(serverState.restaurantData));
+    }
+
+    const localGacha = JSON.parse(localStorage.getItem(gachaKey) || "null");
+    if ((!localGacha || Object.keys(localGacha).length === 0) && serverState.gachaState) {
+      localStorage.setItem(gachaKey, JSON.stringify(serverState.gachaState));
+    }
+  } catch (e) {
+    console.warn("mergeAndApplyState failed:", e);
+  }
+}
