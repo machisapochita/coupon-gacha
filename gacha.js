@@ -504,13 +504,19 @@ function addCoupon(store, prizeType) {
     console.warn("updateCouponSummary failed:", e);
   }
 
-  // 追加: サーバーへの状態保存
-  const snapshot = {
-    coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
-    restaurantData: JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]"),
-    gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
-  };
-  saveGachaStateToServer(snapshot).then(res => console.log("state saved:", res)).catch(e => console.warn(e));
+  // サーバへ状態を保存（同期）：必ず呼ぶ
+  try {
+    const snapshot = {
+      coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
+      restaurantData: JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]"),
+      gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
+    };
+    saveGachaStateToServer(snapshot)
+      .then(res => console.log("saveGachaStateToServer ok:", res))
+      .catch(err => console.warn("saveGachaStateToServer error:", err));
+  } catch (e) {
+    console.warn("snapshot/save failed:", e);
+  }
 }
 
 // ３．重賞の抽選
@@ -892,80 +898,68 @@ function removeSkipButton() {
 // --- 追加ここまで ---
 
 /**
- * サーバ（Apps Script）へ gacha 状態を保存する
- * payload は { coupons, restaurantData, gachaState } のようなスナップショットを想定
+ * サーバへ gacha 状態を保存（Apps Script に data=... の form-urlencoded で送る）
  */
 function saveGachaStateToServer(stateObj) {
   try {
     const uid = localStorage.getItem("userId");
     if (!uid) return Promise.resolve({ skipped: true, reason: "no userId" });
-    // LOG_URL をグローバルで使っている想定（coupon.js に定義済み）
-    if (!window.LOG_URL) {
-      console.warn("saveGachaStateToServer: LOG_URL not defined");
-      return Promise.resolve({ skipped: true, reason: "no LOG_URL" });
-    }
+
+    // LOG_URL は coupon.js で const LOG_URL = "..."; と定義している想定なので
+    // window.LOG_URL を参照するより識別子 LOG_URL を優先して使う
+    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbyeXtfLCqsp3aH6V2h7phVw14MRF803iprYx1aPgL6t8wX0Zfkok4xt6KmG4pusz2Hg/exec";
+    const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
+
     const payload = { eventType: "saveState", userId: uid, state: stateObj };
-    return fetch(window.LOG_URL, {
+    return fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
       body: "data=" + encodeURIComponent(JSON.stringify(payload))
-    }).then(r => r.text().then(t => {
+    }).then(r => r.text()).then(t => {
       try { return JSON.parse(t); } catch (e) { return { raw: t }; }
-    }));
+    });
   } catch (e) {
     return Promise.reject(e);
   }
 }
 
 /**
- * サーバから保存済み state を取得する
- * doGet?action=getState&userId=... を想定
+ * サーバから保存済み state を取得（doGet?action=getState&userId=...）
  */
 function loadGachaStateFromServer(userId) {
   try {
     if (!userId) return Promise.resolve({ found: false, state: {} });
-    if (!window.LOG_URL) {
-      console.warn("loadGachaStateFromServer: LOG_URL not defined");
-      return Promise.resolve({ status: "no-log-url", found: false, state: {} });
-    }
-    const url = window.LOG_URL + "?action=getState&userId=" + encodeURIComponent(userId);
+    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbyeXtfLCqsp3aH6V2h7phVw14MRF803iprYx1aPgL6t8wX0Zfkok4xt6KmG4pusz2Hg/exec";
+    const baseUrl = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
+    const url = baseUrl + "?action=getState&userId=" + encodeURIComponent(userId);
     return fetch(url, { method: "GET" })
       .then(r => r.text())
-      .then(text => {
-        try { return JSON.parse(text); } catch (e) { return { status: "parse-error", raw: text }; }
-      });
+      .then(text => { try { return JSON.parse(text); } catch (e) { return { status: "parse-error", raw: text }; } });
   } catch (e) {
     return Promise.reject(e);
   }
 }
 
 /**
- * サーバから取得した state をローカルに適用する簡易マージ
- * - ローカルにデータが無ければ server を採用する挙動
+ * サーバ state をローカルに適用（今回の要件は「サーバ優先で完全上書き」）
  */
-function mergeAndApplyState(serverState) {
+function applyServerStateToLocal(serverState, userId) {
   try {
-    const uid = localStorage.getItem("userId");
-    if (!uid || !serverState) return;
-    const couponsKey = `myCoupons_${uid}`;
-    const restaurantsKey = `restaurantData_${uid}`;
-    const gachaKey = `gachaState_${uid}`;
+    if (!userId || !serverState) return;
+    const couponsKey = `myCoupons_${userId}`;
+    const restaurantsKey = `restaurantData_${userId}`;
+    const gachaKey = `gachaState_${userId}`;
 
-    const localCoupons = JSON.parse(localStorage.getItem(couponsKey) || "null");
-    if ((!localCoupons || localCoupons.length === 0) && serverState.coupons) {
+    if (serverState.coupons) {
       localStorage.setItem(couponsKey, JSON.stringify(serverState.coupons));
     }
-
-    const localRestaurants = JSON.parse(localStorage.getItem(restaurantsKey) || "null");
-    if ((!localRestaurants || localRestaurants.length === 0) && serverState.restaurantData) {
+    if (serverState.restaurantData) {
       localStorage.setItem(restaurantsKey, JSON.stringify(serverState.restaurantData));
     }
-
-    const localGacha = JSON.parse(localStorage.getItem(gachaKey) || "null");
-    if ((!localGacha || Object.keys(localGacha).length === 0) && serverState.gachaState) {
+    if (serverState.gachaState) {
       localStorage.setItem(gachaKey, JSON.stringify(serverState.gachaState));
     }
   } catch (e) {
-    console.warn("mergeAndApplyState failed:", e);
+    console.warn("applyServerStateToLocal failed:", e);
   }
 }
