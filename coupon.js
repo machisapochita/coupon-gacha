@@ -535,3 +535,91 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
+/**
+ * クーポンをローカルで「使用済み」にしてサーバへ同期する
+ * couponId は myCoupons_{userId} 配列内の一意の識別子（storeId 等）を想定
+ */
+function markCouponUsedAndSync(couponId) {
+  try {
+    const userId = localStorage.getItem("userId");
+    if (!userId) {
+      console.warn("markCouponUsedAndSync: no userId");
+      return Promise.resolve({ skipped: true });
+    }
+    const key = `myCoupons_${userId}`;
+    const coupons = JSON.parse(localStorage.getItem(key) || "[]");
+
+    // クーポンを探して used=true をセット
+    let changed = false;
+    for (let i = 0; i < coupons.length; i++) {
+      const c = coupons[i];
+      // storeId などで判定（必要に応じ条件を変更）
+      if (c.storeId === couponId || c.id === couponId) {
+        if (!c.used) {
+          c.used = true;
+          c.usedAt = new Date().toISOString();
+          coupons[i] = c;
+          changed = true;
+        }
+        break;
+      }
+    }
+
+    if (!changed) {
+      console.info("markCouponUsedAndSync: coupon not found or already used:", couponId);
+      return Promise.resolve({ skipped: true });
+    }
+
+    // ローカル保存
+    localStorage.setItem(key, JSON.stringify(coupons));
+    // UI 更新（既存の関数があれば呼ぶ）
+    try { updateCouponListUI && updateCouponListUI(); } catch(e){}
+
+    // サーバへスナップショット送信（Apps Script の saveState を更新）
+    // LOG_URL は coupon.js で定義済みの const LOG_URL を利用
+    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxmVyp4bL0XC2-he0HNL29YZckIKXMUAG-_IMrxUXL5dPnTjgwBJigg9iAQnE1lI4DM/exec";
+    const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
+
+    const snapshot = {
+      coupons: coupons,
+      restaurantData: JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]"),
+      gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
+    };
+
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body: "data=" + encodeURIComponent(JSON.stringify({ eventType: "saveState", userId: userId, state: snapshot }))
+    })
+    .then(r => r.text())
+    .then(txt => {
+      try { return JSON.parse(txt); } catch (e) { return { raw: txt }; }
+    })
+    .then(res => {
+      console.log("markCouponUsedAndSync: server saved:", res);
+      return res;
+    })
+    .catch(err => {
+      console.warn("markCouponUsedAndSync: server save failed:", err);
+      return { error: String(err) };
+    });
+
+  } catch (err) {
+    console.error("markCouponUsedAndSync error:", err);
+    return Promise.reject(err);
+  }
+}
+
+/*
+  既存の「クーポン使用」ボタンハンドラ内の例（実際のハンドラ箇所に以下を追加）：
+
+  // 例: document.getElementById('use-coupon-btn').addEventListener('click', () => {
+  //   const couponId = ...; // 対象クーポンの storeId または id を決める
+  //   // 既存処理でローカルに used=true を直接書いている場合は上書きせず、
+  //   // 上のユーティリティ関数を呼ぶように差し替えてください
+  //   markCouponUsedAndSync(couponId).then(() => {
+  //     // 必要なら UI を閉じる等の処理
+  //   });
+  // });
+*/
+
