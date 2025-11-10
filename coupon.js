@@ -130,7 +130,33 @@ function renderCoupons() {
   });
 }
 
-document.addEventListener("DOMContentLoaded", renderCoupons);
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    const userId = localStorage.getItem("userId");
+    if (userId) {
+      try {
+        const url = LOG_URL + "?action=getState&userId=" + encodeURIComponent(userId);
+        const resp = await fetch(url, { method: "GET" }).then(r => r.text()).then(t => { try { return JSON.parse(t); } catch(e) { return { status: "parse-error", raw: t }; }});
+        if (resp && resp.status === "OK" && resp.found && resp.state) {
+          // サーバ優先で localStorage に上書き
+          if (resp.state.coupons) localStorage.setItem(`myCoupons_${userId}`, JSON.stringify(resp.state.coupons));
+          if (resp.state.restaurantData) localStorage.setItem(`restaurantData_${userId}`, JSON.stringify(resp.state.restaurantData));
+          if (resp.state.gachaState) localStorage.setItem(`gachaState_${userId}`, JSON.stringify(resp.state.gachaState));
+          console.log("coupon.js: applied server state for user", userId);
+        } else {
+          console.info("coupon.js: no server state or not found", resp);
+        }
+      } catch (e) {
+        console.warn("coupon.js: failed to load/apply server state:", e);
+      }
+    }
+  } catch (e) {
+    console.warn("coupon.js: DOMContentLoaded pre-sync error:", e);
+  }
+
+  // その後レンダリング
+  renderCoupons();
+});
 
 document.addEventListener("DOMContentLoaded", () => {
   const confirmButton = document.querySelector(".confirm-use-button");
@@ -508,27 +534,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
       console.log("confirm-use: sending usage log", { userId, salonId, storeId, storeName, prizeType });
 
-      sendUsageLog({
-        userId,
-        storeId,
-        storeName,
-        prizeType,
-        salonId
-      })
-      .then(res => {
-        console.log("sendUsageLog result:", res);
-      })
-      .catch(err => {
-        console.error("sendUsageLog error:", err);
-      });
-
-      // モーダルを閉じる等の既存処理があればここで呼ぶ
-      const couponModal = document.getElementById("coupon-modal");
-      if (couponModal) couponModal.classList.add("hidden");
-
-      // 必要ならキー入力クリアや UI 更新も行う
-      const keyInput = document.getElementById("key-input");
-      if (keyInput) keyInput.value = "";
+      markCouponUsedAndSync(storeId)
+        .then(() => {
+          return sendUsageLog({ userId, storeId, storeName, prizeType, salonId }).catch(e => { console.warn("sendUsageLog after mark failed:", e); });
+        })
+        .then(() => {
+          const couponModal = document.getElementById("coupon-modal");
+          if (couponModal) couponModal.classList.add("hidden");
+          const keyInput = document.getElementById("key-input");
+          if (keyInput) keyInput.value = "";
+          renderCoupons();
+        })
+        .catch(err => {
+          console.warn("confirm click: sync failed, applying local fallback:", err);
+          const couponModal = document.getElementById("coupon-modal");
+          if (couponModal) couponModal.classList.add("hidden");
+          const keyInput = document.getElementById("key-input");
+          if (keyInput) keyInput.value = "";
+          renderCoupons();
+        });
     });
   } else {
     console.warn("confirm-use-button not found");
@@ -622,4 +646,3 @@ function markCouponUsedAndSync(couponId) {
   //   });
   // });
 */
-
