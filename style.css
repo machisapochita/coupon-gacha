@@ -625,69 +625,17 @@ html, body {
 }
 
 #pr-video {
-  height: 100vh;
-  width: auto;
-}
-
-/* --- PR 再生時: モーダルより前面で safe-area 内に表示 --- */
-:root {
-  --header-height: 70px; /* 実際のヘッダー高さに合わせて調整 */
-  --footer-height: 70px;
-}
-
-/* PR 動画を表示するコンテナ（モーダル z-index:999 より前面に） */
-#pr-video-fullscreen {
   position: fixed;
+  top: 0;
   left: 0;
-  right: 0;
-  /* ステータスバー／ツールバーの安全領域を考慮して上下に余白を確保 */
-  top: calc(env(safe-area-inset-top, 0px) + var(--header-height));
-  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--footer-height));
-  z-index: 2000;                        /* modal(999) より前面 */
+  width: 100%;
+  height: 100%;
+  background: black;
+  z-index: 2000;
   display: flex;
-  align-items: center;
   justify-content: center;
-  background: #000;
-  box-sizing: border-box;
-  padding-left: env(safe-area-inset-left, 0px);
-  padding-right: env(safe-area-inset-right, 0px);
-  pointer-events: auto;
+  align-items: center;
 }
-
-/* iOS 旧ブラウザ用フォールバック */
-@supports (padding: constant(safe-area-inset-top)) {
-  #pr-video-fullscreen {
-    top: calc(constant(safe-area-inset-top) + var(--header-height));
-    bottom: calc(constant(safe-area-inset-bottom) + var(--footer-height));
-    padding-left: constant(safe-area-inset-left);
-    padding-right: constant(safe-area-inset-right);
-  }
-}
-
-/* コンテナ内の video は上下が切れないように制約を付ける */
-#pr-video-fullscreen video {
-  width: 100%;
-  height: auto;
-  max-height: calc(100vh - var(--header-height) - var(--footer-height) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-  object-fit: contain; /* contain にして上下が隠れないようにする（必要に応じ cover に変更） */
-  display: block;
-}
-
-/* モーダルはそのまま（z-index:999）でOK。pr-video-fullscreen が上に来る */
-.modal {
-  z-index: 999;
-}
-
-/* 既存の .fullscreen-video や #pr-video の 100vh 指定が残っていると不整合になるため
-   必要なら下記のルールで上書きしてください（存在する場合）。 */
-#pr-video {
-  width: 100%;
-  height: auto;
-  max-height: calc(100vh - var(--header-height) - var(--footer-height) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-  object-fit: contain;
-}
-
-/* ...existing code... */
 
 .hidden {
   display: none !important;
