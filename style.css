@@ -637,6 +637,27 @@ html, body {
   align-items: center;
 }
 
+/* ガチャ演出スキップボタン（右下・safe-area 考慮） */
+.skip-gacha-btn {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 12px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  z-index: 3500; /* PR 再生より手前に出したい場合は更に大きくする */
+  background: #bdbdbd; /* グレー */
+  color: #111;
+  border: none;
+  padding: 8px 5px;
+  border-radius: 8px;
+  font-size: clamp(5px, 5vw, 16px);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+/* 押下スタイル */
+.skip-gacha-btn:active {
+  transform: translateY(1px);
+}
+
 .hidden {
   display: none !important;
 }
