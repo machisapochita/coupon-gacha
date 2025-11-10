@@ -203,17 +203,46 @@ function ensureRestaurantDataInitialized() {
   }
 }
 
-// ページ読み込み時に描画
-document.addEventListener("DOMContentLoaded", () => {
-  ensureRestaurantDataInitialized(); // ← これを追加！
+// 既存の DOMContentLoaded ハンドラ（もし同種のものが複数あればまとめて1つに）
+document.addEventListener("DOMContentLoaded", async () => {
+  const userId = localStorage.getItem("userId");
+
+  // 1) サーバ上の state が利用可能ならロードして local に適用してから描画
+  try {
+    if (userId && typeof window.loadGachaStateFromServer === "function") {
+      const res = await window.loadGachaStateFromServer(userId);
+      if (res && res.status === "OK" && res.found && res.state) {
+        // applyServerStateToLocal は gacha.js 側で定義されている前提
+        try {
+          window.applyServerStateToLocal(res.state ? { found: true, state: res.state } : res, userId);
+          console.info("restaurants.js: server state applied for", userId);
+        } catch (e) {
+          // 互換性が合わない場合に備えて直接保存も行っておく
+          if (res.state) {
+            if (res.state.restaurantData) localStorage.setItem(`restaurantData_${userId}`, JSON.stringify(res.state.restaurantData));
+            if (res.state.coupons) localStorage.setItem(`myCoupons_${userId}`, JSON.stringify(res.state.coupons));
+            if (res.state.gachaState) localStorage.setItem(`gachaState_${userId}`, JSON.stringify(res.state.gachaState));
+            console.info("restaurants.js: fallback applied server state");
+          }
+        }
+      } else {
+        console.info("restaurants.js: no server state or not found", res);
+      }
+    }
+  } catch (e) {
+    console.warn("restaurants.js: failed to load/apply server state:", e);
+  }
+
+  // 2) ローカル初期化 → 描画
+  ensureRestaurantDataInitialized();
   renderRestaurants();
 
+  // 3) モーダル写真スワイプ登録（既存コードと重複しないよう維持）
   const modalPhoto = document.getElementById("modal-photo");
   if (modalPhoto) {
     modalPhoto.addEventListener("touchstart", (e) => {
       touchStartX = e.changedTouches[0].screenX;
     });
-
     modalPhoto.addEventListener("touchend", (e) => {
       touchEndX = e.changedTouches[0].screenX;
       handleSwipe();
@@ -221,75 +250,19 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-// ガチャで当たった店舗をアンロックする処理
-function unlockRestaurant(storeId) {
-  const userId = localStorage.getItem("userId");
-  if (!userId) return;
-  const key = `restaurantData_${userId}`;
-  const data = JSON.parse(localStorage.getItem(key) || "[]");
-  const idx = data.findIndex(s => s.storeId === storeId);
-  if (idx !== -1) {
-    data[idx].unlocked = true;
-    localStorage.setItem(key, JSON.stringify(data));
-    const snapshot = {
-      coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
-      restaurantData: data,
-      gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
-    };
-    stateSync.requestSave(snapshot);
-  }
-}
-
-function markCouponUsedOnRestaurant(storeId) {
-  const userId = localStorage.getItem("userId");
-  if (!userId) return;
-  const key = `restaurantData_${userId}`;
-  const data = JSON.parse(localStorage.getItem(key) || "[]");
-  const idx = data.findIndex(s => s.storeId === storeId);
-  if (idx !== -1) {
-    data[idx].couponUsed = true;
-    localStorage.setItem(key, JSON.stringify(data));
-    const snapshot = {
-      coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
-      restaurantData: data,
-      gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
-    };
-    stateSync.requestSave(snapshot);
-  }
-}
-
-let touchStartX = 0;
-let touchEndX = 0;
-
-document.addEventListener("DOMContentLoaded", () => {
-  renderRestaurants();
-
-  const modalPhoto = document.getElementById("modal-photo");
-  if (modalPhoto) {
-    modalPhoto.addEventListener("touchstart", (e) => {
-      touchStartX = e.changedTouches[0].screenX;
-    });
-
-    modalPhoto.addEventListener("touchend", (e) => {
-      touchEndX = e.changedTouches[0].screenX;
-      handleSwipe();
-    });
+// 4) 別タブで localStorage が更新されたら自動で再描画（storage イベント）
+window.addEventListener("storage", (e) => {
+  try {
+    const userId = localStorage.getItem("userId");
+    if (!userId) return;
+    if (e.key === `restaurantData_${userId}` || e.key === `myCoupons_${userId}` || e.key === `gachaState_${userId}`) {
+      console.info("restaurants.js: storage event detected, key=", e.key);
+      renderRestaurants();
+    }
+  } catch (err) {
+    console.warn("restaurants.js: storage handler error", err);
   }
 });
-
-function handleSwipe() {
-  if (!currentStore) return;
-  const threshold = 50; // スワイプ判定の距離
-  if (touchEndX < touchStartX - threshold) {
-    // 左スワイプ → 次の画像
-    currentPhotoIndex = (currentPhotoIndex + 1) % currentStore.images.length;
-    updatePhoto(currentStore.images);
-  } else if (touchEndX > touchStartX + threshold) {
-    // 右スワイプ → 前の画像
-    currentPhotoIndex = (currentPhotoIndex - 1 + currentStore.images.length) % currentStore.images.length;
-    updatePhoto(currentStore.images);
-  }
-}
 
 // PR動画を再生するハンドラ（モーダルから）
 function playModalPR(store) {

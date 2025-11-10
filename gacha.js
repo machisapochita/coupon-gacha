@@ -267,6 +267,13 @@ window.initializeRestaurantData = function () {
 
 function updateCouponSummary(amount) {
   const summary = document.getElementById("coupon-summary");
+  // 存在しないページ（例：restaurants.html の場合など）は無視する
+  if (!summary) {
+    const totalEl = document.getElementById("total-amount");
+    if (totalEl) totalEl.textContent = `${amount}円`;
+    return;
+  }
+
   summary.classList.remove("silver", "gold", "rainbow");
 
   if (amount >= 2000) {
@@ -277,7 +284,8 @@ function updateCouponSummary(amount) {
     summary.classList.add("silver");
   }
 
-  document.getElementById("total-amount").textContent = `${amount}円`;
+  const totalEl = document.getElementById("total-amount");
+  if (totalEl) totalEl.textContent = `${amount}円`;
 }
 
 // 初期表示（PoC用）
@@ -811,17 +819,31 @@ function updateGachaButtonState() {
   const restaurantKey = `restaurantData_${userId}`;
 
   const gachaButtonImage = document.getElementById("gacha-button-image");
+  // 無ければ（そのページはガチャUIを持っていない）安全終了
+  if (!gachaButtonImage) {
+    console.warn("updateGachaButtonState: gacha-button-image が見つかりません。処理をスキップします。");
+    return;
+  }
+
   const state = JSON.parse(localStorage.getItem(gachaKey));
-  const allStores = JSON.parse(localStorage.getItem(restaurantKey));
+  const allStores = JSON.parse(localStorage.getItem(restaurantKey) || "[]");
 
   gachaButtonImage.classList.remove("pulse", "rainbow", "complete");
   gachaButtonImage.onclick = null;
+
+  if (!state) {
+    // state が未定義のとき安全処理
+    gachaButtonImage.src = "images/gacha-button.png";
+    gachaButtonImage.classList.add("zoom");
+    gachaButtonImage.onclick = () => startGachaSequence();
+    return;
+  }
 
   if (state.remaining === 0) {
     gachaButtonImage.src = "images/gacha-end-button.png";
     gachaButtonImage.classList.add("complete");
     gachaButtonImage.onclick = () => {};
-  } else if (state.prizePool.length === 0) {
+  } else if (state.prizePool && state.prizePool.length === 0) {
     gachaButtonImage.src = "images/gacha-lastone-button.png";
     gachaButtonImage.classList.add("zoom");
     gachaButtonImage.onclick = () => startGachaSequence();
