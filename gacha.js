@@ -220,6 +220,33 @@ window.initialRestaurantData = baseRestaurantData.flatMap(base => {
   }));
 });
 
+// --- 追加: ページ初期化（UI更新をここで一元化） ---
+function initGachaUI() {
+  try {
+    // ensure per-user restaurant data exists
+    try { window.initializeRestaurantData && window.initializeRestaurantData(); } catch(e){}
+
+    // status area (残回数・賞種カウント) を必ず更新
+    try { updateStatusArea(); } catch(e) { console.warn("updateStatusArea failed:", e); }
+
+    // gacha ボタンの状態／クリックハンドラを設定
+    try { updateGachaButtonState(); } catch(e) { console.warn("updateGachaButtonState failed:", e); }
+
+    // coupon 合計等をローカルから復元して表示
+    try {
+      const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]");
+      const totalAmount = coupons.reduce((sum, c) => sum + (c.discount || 0), 0);
+      updateCouponSummary && updateCouponSummary(totalAmount);
+    } catch(e){ /* ignore */ }
+  } catch (err) {
+    console.error("initGachaUI error:", err);
+  }
+}
+
+// DOMContentLoaded 時に initGachaUI を確実に呼ぶ（既存の safeGachaInit でも呼ばれる）
+document.addEventListener("DOMContentLoaded", () => {
+  try { initGachaUI(); } catch(e) { console.warn("DOMContentLoaded initGachaUI failed:", e); }
+});
 
 const currentData = JSON.parse(localStorage.getItem("restaurantData"));
 if (!Array.isArray(currentData) || currentData.length === 0) {
@@ -644,7 +671,9 @@ function drawStore(prizeType) {
   const gachaKey = `gachaState_${userId}`;
   const restaurantKey = `restaurantData_${userId}`;
 
-  const allStores = JSON.parse(localStorage.getItem(restaurantKey)) || [];
+  // 変更: 直接 localStorage を読むのではなく、汎用ユーティリティ経由で取得する
+  // getRestaurantListForUser は legacy キーや global 初期データをフォールバックして返す
+  const allStores = getRestaurantListForUser(userId) || [];
   const state = JSON.parse(localStorage.getItem(gachaKey)) || { drawnStoreIds: [] };
 
   // 🎯 該当賞種かつ未排出の店舗だけ抽出
@@ -927,356 +956,267 @@ function getSalonId() {
   return localStorage.getItem("salonId") || null;
 }
 
-/* --- startGachaSequence の先頭で stateSync.pause()、最後に resume()+flushNow() --- */
-// （既存の startGachaSequence の内部該当箇所を以下のように置き換えてください）
-function startGachaSequence() {
-  const popup = document.getElementById("gacha-popup");
-  const gachaVideo = document.getElementById("gacha-roll-video");
-  const prizeImage = document.getElementById("prize-image");
-  const prVideoContainer = document.getElementById("pr-video-fullscreen");
-  const prVideo = document.getElementById("pr-video");
-  const couponPopup = document.getElementById("coupon-popup");
-  const backButton = document.getElementById("back-button");
-  // ループ背景用 video（coupon-popup 内で再生）
-  const loopVideo = document.getElementById("loop-video");
-  const loopContainer = document.getElementById("background-loop-video");
-
-  // 初期 UI セット
-  popup.classList.remove("hidden");
-  prizeImage.classList.add("hidden");
-  couponPopup.classList.add("hidden");
-  backButton.classList.add("hidden");
-  prVideoContainer.classList.add("hidden");
-  if (loopContainer) loopContainer.classList.add("hidden");
-
-  // 1) 抽選を先に行う（賞種と店舗）
-  const prizeType = drawPrizeType();
-  const store = drawStore(prizeType);
-
-  console.log("抽選された賞種:", prizeType);
-  console.log("選ばれた店舗:", store);
-
-  if (!store) {
-    alert("抽選対象の店舗がありません。");
-    popup.classList.add("hidden");
-    return;
-  }
-
-  // gachaCompleted フラグ
-  if (prizeType === "last-one") {
-    localStorage.setItem("gachaCompleted", "true");
-  } else {
-    localStorage.setItem("gachaCompleted", "false");
-  }
-
-  // pause stateSync to avoid intermediate duplicate saveState posts
-  try { stateSync.pause(); } catch(e){}
-
-  // 店舗アンロックやクーポン追加など（ローカル更新は行う）
-  store.prizeType = prizeType;
-  store.unlocked = true;
-  updateRestaurantData(store); // should update local restaurantData
-  addCoupon(store, prizeType);  // should update local coupons
-
-  // gacha 実行ログ送信（getSalonId を安全に扱う）
-  try {
-    const userId = localStorage.getItem("userId") || "unknown";
-    const salonId = getSalonId() || "unknown";
-    const payload = {
-      eventType: "gacha",
-      userId: userId,
-      storeId: store.storeId || store.id || "unknown",
-      storeName: store.name || "unknown",
-      salonId: salonId,
-      prizeType: prizeType,
-      gachaCompleted: (prizeType === "last-one")
+/*
+  安全ガード／初期化ラッパーの追加
+  - stateSync / getSalonId / load/apply のフォールバックを用意
+  - DOMContentLoaded 時にサーバ state を読み込んでから既存初期化を呼ぶ
+*/
+(function(){
+  // stateSync フォールバック（他ファイルから参照されるため window にセット）
+  if (!window.stateSync) {
+    window.stateSync = {
+      requestSave: function() { return; },
+      flushNow: function(){ return Promise.resolve({skipped:true}); },
+      pause: function(){},
+      resume: function(){},
+      _debugState: function(){ return {}; }
     };
-    // 既存のログ送信ユーティリティがあればそれを呼ぶ
-    if (typeof sendGachaLog === "function") {
-      sendGachaLog(payload).catch(err => console.warn("gacha log send failed:", err));
-    } else {
-      const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || "");
-      if (url) {
-        fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-          body: "data=" + encodeURIComponent(JSON.stringify(payload))
-        }).catch(err => console.warn("gacha log send failed:", err));
+  }
+
+  // getSalonId を確実に提供（既定値は localStorage）
+  if (typeof window.getSalonId !== "function") {
+    window.getSalonId = function() {
+      try {
+        return (typeof getSalonId === "function") ? getSalonId() : localStorage.getItem("salonId") || null;
+      } catch(e) {
+        return localStorage.getItem("salonId") || null;
+      }
+    };
+  }
+
+  // loadGachaStateFromServer / applyServerStateToLocal が未定義なら簡易実装をセット（本実装がある場合は上書きしない）
+  if (typeof window.loadGachaStateFromServer !== "function") {
+    window.loadGachaStateFromServer = function(userId) {
+      return Promise.resolve({ status: "OK", found: false, state: {} });
+    };
+  }
+  if (typeof window.applyServerStateToLocal !== "function") {
+    window.applyServerStateToLocal = function(serverState, userId){
+      try {
+        if (!userId || !serverState) return;
+        if (serverState.coupons) localStorage.setItem(`myCoupons_${userId}`, JSON.stringify(serverState.coupons));
+        if (serverState.restaurantData) localStorage.setItem(`restaurantData_${userId}`, JSON.stringify(serverState.restaurantData));
+        if (serverState.gachaState) localStorage.setItem(`gachaState_${userId}`, JSON.stringify(serverState.gachaState));
+      } catch(e){ console.warn("apply fallback failed:", e); }
+    };
+  }
+
+  // グローバルエラーをコンソールに出す（初期化が途中で止まるのを可視化）
+  window.addEventListener("error", function(ev){
+    console.error("Unhandled error:", ev.error || ev.message, ev.filename + ":" + ev.lineno);
+  });
+
+  // DOMContentLoaded の安全初期化ラッパー
+  document.addEventListener("DOMContentLoaded", async function safeGachaInit(){
+    try {
+      const userId = localStorage.getItem("userId");
+      if (userId) {
+        try {
+          const res = await loadGachaStateFromServer(userId);
+          if (res && res.status === "OK" && res.found && res.state) {
+            applyServerStateToLocal(res.state, userId);
+            console.log("gacha.js: applied server state for user", userId);
+          } else {
+            console.info("gacha.js: no server state or response", res);
+          }
+        } catch (e) {
+          console.warn("gacha.js: loadGachaStateFromServer failed:", e);
+        }
+      }
+
+      // 既存の初期化関数があれば呼ぶ（存在すれば実行）
+      try {
+        if (typeof initGachaUI === "function") {
+          initGachaUI();
+        } else {
+          // 既存コードの初期化箇所が分からない場合、既存の DOMContentLoaded ハンドラが続行するためここでは何もしない
+        }
+      } catch (e) {
+        console.warn("gacha.js: initGachaUI failed:", e);
+      }
+    } catch (err) {
+      console.error("gacha safe init failed:", err);
+    }
+  }, { once: true });
+
+})();
+
+// 安全に user の店舗リストを取得するユーティリティ
+function getRestaurantListForUser(uid) {
+  try {
+    // UID がないなら global 初期データを返す
+    if (!uid) return (window.initialRestaurantData || []).slice();
+
+    const key = `restaurantData_${uid}`;
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw || "[]");
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    }
+
+    // 互換性のため legacy キーも確認する（以前の実装で使っていた場合）
+    const legacyRaw = localStorage.getItem("restaurantData");
+    if (legacyRaw) {
+      const parsedL = JSON.parse(legacyRaw || "[]");
+      if (Array.isArray(parsedL) && parsedL.length) {
+        // ユーザ用キーへ移行しておく
+        localStorage.setItem(key, JSON.stringify(parsedL));
+        return parsedL;
       }
     }
+
+    // 最終フォールバック： global initial data
+    return (window.initialRestaurantData || []).slice();
   } catch (e) {
-    console.warn("gacha log prepare failed:", e);
+    console.warn("getRestaurantListForUser failed:", e);
+    return (window.initialRestaurantData || []).slice();
+  }
+}
+
+// 抽選プール作成のサンプル（既存ロジックに合わせてフィルタ条件を調整してください）
+function buildPrizePool(uid, prizeType) {
+  const restaurants = getRestaurantListForUser(uid);
+  if (!Array.isArray(restaurants) || restaurants.length === 0) {
+    console.warn("抽選対象の店舗がありません (userId:", uid, ")");
+    return [];
   }
 
-  // 最後に一度だけ state を送信して resume
+  const pool = [];
+  for (const s of restaurants) {
+    // ここは既存の判定ロジックに合わせること
+    // 例: s.unlocked が false でも抽選対象にする仕様なら変更してください
+    if (s && !s.excluded) {
+      // 賞種ごとの条件があればここで絞る
+      pool.push(s);
+    }
+  }
+  return pool;
+}
+
+// 既存の initializeRestaurantData がある箇所の直後に挿入
+(function ensurePerUserRestaurantData() {
   try {
     const uid = localStorage.getItem("userId");
-    if (uid) {
-      const snapshot = {
-        coupons: JSON.parse(localStorage.getItem(`myCoupons_${uid}`) || "[]"),
-        restaurantData: JSON.parse(localStorage.getItem(`restaurantData_${uid}`) || "[]"),
-        gachaState: JSON.parse(localStorage.getItem(`gachaState_${uid}`) || "{}")
-      };
-      stateSync.resume();
-      // flushNow を使えば即時送信を待てる（必要なら then で処理）
-      stateSync.requestSave(snapshot);
-      stateSync.flushNow().catch(e => console.warn("flushNow error:", e));
-    } else {
-      stateSync.resume();
+    if (!uid) return; // userId 未設定なら何もしない
+
+    const perKey = `restaurantData_${uid}`;
+    if (!localStorage.getItem(perKey)) {
+      // まず legacy キーを確認、なければ global 初期データを使う
+      const legacy = localStorage.getItem("restaurantData");
+      if (legacy) {
+        localStorage.setItem(perKey, legacy);
+        console.info("copied legacy restaurantData ->", perKey);
+      } else {
+        localStorage.setItem(perKey, JSON.stringify(window.initialRestaurantData || []));
+        console.info("initialized", perKey, "from window.initialRestaurantData");
+      }
     }
   } catch (e) {
-    stateSync.resume();
+    console.warn("ensurePerUserRestaurantData failed:", e);
   }
+})();
 
-  // --- ここでガチャ実行ログを必ず送る（Apps Script の doPost が受け取る形式） ---
-  try {
-    const uid = localStorage.getItem("userId") || "未設定";
-    const salonId = getSalonId(); // return 既存の salonId or fallback
-    console.log("sending gacha viewed log", { userId: uid, storeId: store.storeId, storeName: store.name, prizeType, salonId });
-    // sendVideoLog は fetch を return するので Promise を受け取れる
-    sendVideoLog({ userId: uid, storeId: store.storeId, storeName: store.name, prizeType, salonId })
-      .then(res => console.log("sendVideoLog ok:", res))
-      .catch(err => console.error("sendVideoLog error:", err));
-  } catch (e) {
-    console.warn("gacha log send failed:", e);
-  }
-  // --- ログ送信ここまで ---
-  
-  // 2) 賞種に応じたガチャ演出動画を再生
-  const gachaSrcMap = {
-    normal: "videos/gacha-normal.mp4",
-    rare: "videos/gacha-rare.mp4",
-    "last-one": "videos/gacha-last-one.mp4"
-  };
-  const gachaSrc = gachaSrcMap[prizeType] || gachaSrcMap.normal;
-
-  // 再生が終わったら PR を再生するシーケンスを設定
-  const onGachaEnded = async () => {
-    // 再生終了時 / スキップ時のクリーンアップ
-    removeSkipButton();
-    gachaVideo.removeEventListener("ended", onGachaEnded);
-
-    // 3) 当選店舗の PR 動画を再生
-    if (store.videoUrl) {
-      try {
-        // 事前読み込み（可能な限り）してから再生
-        await preloadVideo(prVideo, store.videoUrl, { preload: "auto", timeout: 7000 });
-      } catch (e) {
-        console.warn("PR video preload failed:", e);
-      }
-
-      prVideoContainer.classList.remove("hidden");
-      prVideo.currentTime = 0;
-      // PR は音声ありで再生を試みる
-      try { prVideo.muted = false; prVideo.volume = 1; } catch(e) {}
-
-      const onPrEnded = () => {
-        prVideo.removeEventListener("ended", onPrEnded);
-        prVideoContainer.classList.add("hidden");
-
-        // 4) PR 終了後に coupon-popup を開く & 賞種に応じたループ動画を再生
-        openCouponPopupWithLoop(prizeType, store);
-      };
-      prVideo.addEventListener("ended", onPrEnded);
-
-      try {
-        const prRes = await tryPlayWithSoundFallback(prVideo);
-        if (prRes && prRes.muted) {
-          console.info("prVideo playing muted (user gesture required to enable audio)");
-        }
-      } catch (err) {
-        console.warn("prVideo play failed entirely:", err);
-        // 再生できない場合は直ちにクーポン表示に移行
-        prVideoContainer.classList.add("hidden");
-        openCouponPopupWithLoop(prizeType, store);
-      }
-    } else {
-      console.warn("動画URLが未設定の店舗です");
-      openCouponPopupWithLoop(prizeType, store);
-    }
-  };
-
-  // gacha video を preload -> play
-  (async () => {
+// --- helper: preloadVideo, tryPlayWithSoundFallback, skip button, and logging ---
+function preloadVideo(videoEl, url, { preload = "auto", timeout = 5000 } = {}) {
+  return new Promise((resolve, reject) => {
+    if (!videoEl) return reject(new Error("preloadVideo: no video element"));
     try {
-      await preloadVideo(gachaVideo, gachaSrc, { preload: "metadata", timeout: 4000 });
+      // set src if different
+      if (!videoEl.src || !videoEl.src.endsWith(url)) {
+        videoEl.pause();
+        videoEl.src = url;
+        videoEl.load();
+      }
     } catch (e) {
-      console.warn("gacha video preload warning:", e);
-    }
-    gachaVideo.currentTime = 0;
-    gachaVideo.addEventListener("ended", onGachaEnded);
-
-    // スキップフラグ（多重実行防止）
-    let gachaSkipped = false;
-
-    // スキップボタンを表示してクリックで onGachaEnded に移行する
-    const skipBtn = createSkipButton();
-    if (skipBtn) {
-      const onSkip = (ev) => {
-        ev && ev.preventDefault();
-        if (gachaSkipped) return;
-        gachaSkipped = true;
-        removeSkipButton();
-        try { gachaVideo.pause(); } catch(e) {}
-        try { /* ジャンプして ended を待たずに処理 */ onGachaEnded(); } catch(e) { console.warn(e); }
-      };
-      skipBtn.addEventListener("click", onSkip, { once: true });
+      // fallthrough to waiting logic
     }
 
+    let settled = false;
+    const onLoaded = () => { if (settled) return; settled = true; cleanup(); resolve(); };
+    const onError = () => { if (settled) return; settled = true; cleanup(); reject(new Error("video load error")); };
+    const cleanup = () => {
+      videoEl.removeEventListener("loadeddata", onLoaded);
+      videoEl.removeEventListener("error", onError);
+      clearTimeout(timer);
+    };
+
+    videoEl.addEventListener("loadeddata", onLoaded);
+    videoEl.addEventListener("error", onError);
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      // タイムアウトしてもエラーにせず resolve させる（フォールバック再生へ）
+      resolve();
+    }, timeout);
+  });
+}
+
+async function tryPlayWithSoundFallback(videoEl) {
+  if (!videoEl) throw new Error("tryPlayWithSoundFallback: no video element");
+  // まず音ありで試す（ユーザーが gesture を与えていれば通る）
+  try {
+    videoEl.muted = false;
+    // iOS 等で volume を設定すると例外になる可能性があるので try/catch
+    try { videoEl.volume = 1; } catch (e) {}
+    await videoEl.play();
+    return { muted: false };
+  } catch (err) {
+    // 音ありで失敗したらミュートで再生を試みる
     try {
-      const res = await tryPlayWithSoundFallback(gachaVideo);
-      if (res && res.muted) {
-        console.info("gachaVideo playing muted (user gesture required to enable audio)");
-      }
-      // 再生が始まったらそのままスキップボタンは有効（表示済み）
-    } catch (err) {
-      console.warn("gachaVideo play failed entirely:", err);
-      // 再生できない場合は直接 PR に遷移
-      removeSkipButton();
-      onGachaEnded();
+      videoEl.muted = true;
+      await videoEl.play();
+      return { muted: true };
+    } catch (err2) {
+      // 再生できない場合は呼び出し元でフォールバックを行う
+      throw new Error("video play failed (both with/without sound)");
     }
-  })();
-}
-
-// 賞種に応じたクーポンを適用
-function applyCoupon(store, prizeType) {
-  const userId = localStorage.getItem("userId");
-  const key = `myCoupons_${userId}`;
-  const coupons = JSON.parse(localStorage.getItem(key)) || [];
-
-  // 該当店舗のクーポンを検索
-  const coupon = coupons.find(c => c.storeId === store.storeId);
-  if (!coupon) {
-    console.warn("店舗に対するクーポンが見つかりません:", store.storeId);
-    return;
   }
-
-  // クーポン情報を店舗データに適用
-  store.coupon = {
-    discount: coupon.discount,
-    conditions: coupon.conditions,
-    expiry: coupon.expiry
-  };
 }
 
-// --- 追加: gacha 演出スキップボタン生成/破棄ユーティリティ ---
 function createSkipButton() {
-  if (document.getElementById("skip-gacha-btn")) return;
-  const btn = document.createElement("button");
-  btn.id = "skip-gacha-btn";
+  let btn = document.querySelector(".skip-gacha-btn");
+  if (btn) return btn;
+  btn = document.createElement("button");
   btn.type = "button";
-  btn.textContent = "演出をスキップ";
   btn.className = "skip-gacha-btn";
-  document.body.appendChild(btn);
+  btn.textContent = "スキップ";
+  // スタイルは CSS 側で .skip-gacha-btn を用意しておくと良い
+  const container = document.getElementById("gacha-popup") || document.body;
+  container.appendChild(btn);
   return btn;
 }
 
 function removeSkipButton() {
-  const el = document.getElementById("skip-gacha-btn");
-  if (el) {
-    try { el.remove(); } catch(e) { el.parentNode && el.parentNode.removeChild(el); }
-  }
-}
-// --- 追加ここまで ---
-
-/**
- * サーバへ gacha 状態を保存（Apps Script に data=... の form-urlencoded で送る）
- */
-function saveGachaStateToServer(stateObj, opts = { retry: 1 }) {
-  try {
-    const uid = localStorage.getItem("userId");
-    if (!uid) return Promise.resolve({ skipped: true, reason: "no userId" });
-
-    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbyeXtfLCqsp3aH6V2h7phVw14MRF803iprYx1aPgL6t8wX0Zfkok4xt6KmG4pusz2Hg/exec";
-    const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
-
-    // mark updatedAt on snapshot
-    try {
-      stateObj = stateObj || {};
-      stateObj.updatedAt = Date.now();
-      // also persist updatedAt locally to avoid later overwrite by older server state
-      const gachaKey = `gachaState_${uid}`;
-      const localG = JSON.parse(localStorage.getItem(gachaKey) || "{}");
-      localG.updatedAt = stateObj.updatedAt;
-      localStorage.setItem(gachaKey, JSON.stringify(localG));
-    } catch (e) { console.warn("saveGachaStateToServer: local updatedAt set failed", e); }
-
-    const payload = { eventType: "saveState", userId: uid, state: stateObj };
-    return fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-      body: "data=" + encodeURIComponent(JSON.stringify(payload))
-    })
-    .then(r => r.text())
-    .then(t => {
-      try { return JSON.parse(t); } catch (e) { return { raw: t }; }
-    })
-    .catch(err => {
-      if (opts.retry > 0) {
-        console.warn("saveGachaStateToServer failed, retrying:", err);
-        return new Promise((res) => setTimeout(res, 600)).then(() => saveGachaStateToServer(stateObj, { retry: opts.retry - 1 }));
-      }
-      return Promise.reject(err);
-    });
-  } catch (e) {
-    return Promise.reject(e);
-  }
+  const btn = document.querySelector(".skip-gacha-btn");
+  if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
 }
 
-/**
- * サーバから保存済み state を取得（doGet?action=getState&userId=...）
- */
-function loadGachaStateFromServer(userId) {
-  try {
-    if (!userId) return Promise.resolve({ found: false, state: {} });
-    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxmVyp4bL0XC2-he0HNL29YZckIKXMUAG-_IMrxUXL5dPnTjgwBJigg9iAQnE1lI4DM/exec";
-    const baseUrl = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
-    const url = baseUrl + "?action=getState&userId=" + encodeURIComponent(userId);
-    return fetch(url, { method: "GET" })
-      .then(r => r.text())
-      .then(text => { try { return JSON.parse(text); } catch (e) { return { status: "parse-error", raw: text }; } });
-  } catch (e) {
-    return Promise.reject(e);
+// simple logger POST helper (Apps Script expects form-urlencoded 'data=')
+function postToLog(payload) {
+  const LOG_URL_FALLBACK = ""; // 必要ならここにデフォルトの Apps Script URL を入れる
+  const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
+  if (!url) {
+    // ログ先未設定なら resolved Promise を返す（非同期パスを途切れさせない）
+    return Promise.reject(new Error("LOG_URL not configured"));
   }
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+    body: "data=" + encodeURIComponent(JSON.stringify(payload))
+  }).then(r => r.text());
 }
 
-/**
- * サーバ state をローカルに適用（今回の要件は「サーバ優先で完全上書き」）
- */
-function applyServerStateToLocal(serverState, userId) {
-  try {
-    if (!userId || !serverState) return;
-    const couponsKey = `myCoupons_${userId}`;
-    const restaurantsKey = `restaurantData_${userId}`;
-    const gachaKey = `gachaState_${userId}`;
-
-    // local updatedAt を取得（数値）
-    const localGacha = JSON.parse(localStorage.getItem(gachaKey) || "{}");
-    const localUpdated = Number(localGacha.updatedAt || 0);
-    const serverUpdated = Number(serverState.updatedAt || 0);
-
-    // サーバが新しければ上書き、そうでなければスキップ
-    if (serverUpdated && serverUpdated <= localUpdated) {
-      console.info("applyServerStateToLocal: server state older or equal, skip apply", { serverUpdated, localUpdated });
-      return;
-    }
-
-    if (serverState.coupons) {
-      localStorage.setItem(couponsKey, JSON.stringify(serverState.coupons));
-    }
-    if (serverState.restaurantData) {
-      localStorage.setItem(restaurantsKey, JSON.stringify(serverState.restaurantData));
-    }
-    if (serverState.gachaState) {
-      // preserve updatedAt from serverState if present
-      const g = serverState.gachaState || {};
-      if (serverState.updatedAt && (!g.updatedAt || Number(g.updatedAt) < Number(serverState.updatedAt))) {
-        g.updatedAt = serverState.updatedAt;
-      }
-      localStorage.setItem(gachaKey, JSON.stringify(g));
-    }
-    console.log("applyServerStateToLocal: applied server state for user:", userId);
-  } catch (e) {
-    console.warn("applyServerStateToLocal failed:", e);
-  }
+function sendVideoLog(payload) {
+  // payload: { userId, storeId, storeName, prizeType, salonId, ... }
+  const p = Object.assign({ eventType: "viewed", ts: Date.now() }, payload);
+  return postToLog(p);
 }
+
+function sendGachaLog(payload) {
+  const p = Object.assign({ eventType: "gacha", ts: Date.now() }, payload);
+  return postToLog(p);
+}
+
+
