@@ -825,7 +825,7 @@ function sendVideoLog({ userId, storeId, storeName, prizeType, salonId }) {
     gachaCompleted
   };
 
-  const url = "https://script.google.com/macros/s/AKfycbyeXtfLCqsp3aH6V2h7phVw14MRF803iprYx1aPgL6t8wX0Zfkok4xt6KmG4pusz2Hg/exec";
+  const url = "https://script.google.com/macros/s/AKfycbxmVyp4bL0XC2-he0HNL29YZckIKXMUAG-_IMrxUXL5dPnTjgwBJigg9iAQnE1lI4DM/exec";
 
   // application/x-www-form-urlencoded で送る（プレフライト回避）
   return fetch(url, {
@@ -951,7 +951,7 @@ function saveGachaStateToServer(stateObj) {
 
     // LOG_URL は coupon.js で const LOG_URL = "..."; と定義している想定なので
     // window.LOG_URL を参照するより識別子 LOG_URL を優先して使う
-    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbyeXtfLCqsp3aH6V2h7phVw14MRF803iprYx1aPgL6t8wX0Zfkok4xt6KmG4pusz2Hg/exec";
+    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxmVyp4bL0XC2-he0HNL29YZckIKXMUAG-_IMrxUXL5dPnTjgwBJigg9iAQnE1lI4DM/exec";
     const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
 
     const payload = { eventType: "saveState", userId: uid, state: stateObj };
@@ -973,7 +973,7 @@ function saveGachaStateToServer(stateObj) {
 function loadGachaStateFromServer(userId) {
   try {
     if (!userId) return Promise.resolve({ found: false, state: {} });
-    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbyeXtfLCqsp3aH6V2h7phVw14MRF803iprYx1aPgL6t8wX0Zfkok4xt6KmG4pusz2Hg/exec";
+    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxmVyp4bL0XC2-he0HNL29YZckIKXMUAG-_IMrxUXL5dPnTjgwBJigg9iAQnE1lI4DM/exec";
     const baseUrl = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
     const url = baseUrl + "?action=getState&userId=" + encodeURIComponent(userId);
     return fetch(url, { method: "GET" })
