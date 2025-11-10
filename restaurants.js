@@ -224,24 +224,38 @@ document.addEventListener("DOMContentLoaded", () => {
 // ガチャで当たった店舗をアンロックする処理
 function unlockRestaurant(storeId) {
   const userId = localStorage.getItem("userId");
+  if (!userId) return;
   const key = `restaurantData_${userId}`;
   const data = JSON.parse(localStorage.getItem(key)) || [];
-  const index = data.findIndex(store => store.storeId === storeId); //storeIdは賞種付きID（ramen001-2など）
+  const index = data.findIndex(store => store.storeId === storeId);
   if (index !== -1) {
     data[index].unlocked = true;
+    // 保存 & 同期（集約）
     localStorage.setItem(key, JSON.stringify(data));
+    const snapshot = {
+      coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
+      restaurantData: data,
+      gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
+    };
+    stateSync.requestSave(snapshot);
   }
 }
 
-// クーポン使用済み状態を更新する処理
 function markCouponUsed(storeId) {
   const userId = localStorage.getItem("userId");
+  if (!userId) return;
   const key = `restaurantData_${userId}`;
   const data = JSON.parse(localStorage.getItem(key)) || [];
   const index = data.findIndex(store => store.storeId === storeId);
   if (index !== -1) {
     data[index].couponUsed = true;
     localStorage.setItem(key, JSON.stringify(data));
+    const snapshot = {
+      coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
+      restaurantData: data,
+      gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
+    };
+    stateSync.requestSave(snapshot);
   }
 }
 
