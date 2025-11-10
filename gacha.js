@@ -517,6 +517,26 @@ function addCoupon(store, prizeType) {
   } catch (e) {
     console.warn("snapshot/save failed:", e);
   }
+
+  // たとえば addCoupon 内のローカル保存直後に追加：
+  try {
+    const uid = localStorage.getItem("userId");
+    if (uid) {
+      const snapshot = {
+        coupons: JSON.parse(localStorage.getItem(`myCoupons_${uid}`) || "[]"),
+        restaurantData: JSON.parse(localStorage.getItem(`restaurantData_${uid}`) || "[]"),
+        gachaState: JSON.parse(localStorage.getItem(`gachaState_${uid}`) || "{}")
+      };
+      // updatedAt は saveGachaStateToServer 内で付与されるが、ここで確実に渡す
+      saveGachaStateToServer(snapshot).then(res => {
+        console.log("addCoupon: saved server snapshot", res);
+      }).catch(err => {
+        console.warn("addCoupon: save snapshot failed", err);
+      });
+    }
+  } catch (e) {
+    console.warn("addCoupon: snapshot/ save error", e);
+  }
 }
 
 // ３．重賞の抽選
@@ -944,23 +964,41 @@ function removeSkipButton() {
 /**
  * サーバへ gacha 状態を保存（Apps Script に data=... の form-urlencoded で送る）
  */
-function saveGachaStateToServer(stateObj) {
+function saveGachaStateToServer(stateObj, opts = { retry: 1 }) {
   try {
     const uid = localStorage.getItem("userId");
     if (!uid) return Promise.resolve({ skipped: true, reason: "no userId" });
 
-    // LOG_URL は coupon.js で const LOG_URL = "..."; と定義している想定なので
-    // window.LOG_URL を参照するより識別子 LOG_URL を優先して使う
-    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxmVyp4bL0XC2-he0HNL29YZckIKXMUAG-_IMrxUXL5dPnTjgwBJigg9iAQnE1lI4DM/exec";
+    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbyeXtfLCqsp3aH6V2h7phVw14MRF803iprYx1aPgL6t8wX0Zfkok4xt6KmG4pusz2Hg/exec";
     const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
+
+    // mark updatedAt on snapshot
+    try {
+      stateObj = stateObj || {};
+      stateObj.updatedAt = Date.now();
+      // also persist updatedAt locally to avoid later overwrite by older server state
+      const gachaKey = `gachaState_${uid}`;
+      const localG = JSON.parse(localStorage.getItem(gachaKey) || "{}");
+      localG.updatedAt = stateObj.updatedAt;
+      localStorage.setItem(gachaKey, JSON.stringify(localG));
+    } catch (e) { console.warn("saveGachaStateToServer: local updatedAt set failed", e); }
 
     const payload = { eventType: "saveState", userId: uid, state: stateObj };
     return fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
       body: "data=" + encodeURIComponent(JSON.stringify(payload))
-    }).then(r => r.text()).then(t => {
+    })
+    .then(r => r.text())
+    .then(t => {
       try { return JSON.parse(t); } catch (e) { return { raw: t }; }
+    })
+    .catch(err => {
+      if (opts.retry > 0) {
+        console.warn("saveGachaStateToServer failed, retrying:", err);
+        return new Promise((res) => setTimeout(res, 600)).then(() => saveGachaStateToServer(stateObj, { retry: opts.retry - 1 }));
+      }
+      return Promise.reject(err);
     });
   } catch (e) {
     return Promise.reject(e);
@@ -994,6 +1032,17 @@ function applyServerStateToLocal(serverState, userId) {
     const restaurantsKey = `restaurantData_${userId}`;
     const gachaKey = `gachaState_${userId}`;
 
+    // local updatedAt を取得（数値）
+    const localGacha = JSON.parse(localStorage.getItem(gachaKey) || "{}");
+    const localUpdated = Number(localGacha.updatedAt || 0);
+    const serverUpdated = Number(serverState.updatedAt || 0);
+
+    // サーバが新しければ上書き、そうでなければスキップ
+    if (serverUpdated && serverUpdated <= localUpdated) {
+      console.info("applyServerStateToLocal: server state older or equal, skip apply", { serverUpdated, localUpdated });
+      return;
+    }
+
     if (serverState.coupons) {
       localStorage.setItem(couponsKey, JSON.stringify(serverState.coupons));
     }
@@ -1001,8 +1050,14 @@ function applyServerStateToLocal(serverState, userId) {
       localStorage.setItem(restaurantsKey, JSON.stringify(serverState.restaurantData));
     }
     if (serverState.gachaState) {
-      localStorage.setItem(gachaKey, JSON.stringify(serverState.gachaState));
+      // preserve updatedAt from serverState if present
+      const g = serverState.gachaState || {};
+      if (serverState.updatedAt && (!g.updatedAt || Number(g.updatedAt) < Number(serverState.updatedAt))) {
+        g.updatedAt = serverState.updatedAt;
+      }
+      localStorage.setItem(gachaKey, JSON.stringify(g));
     }
+    console.log("applyServerStateToLocal: applied server state for user:", userId);
   } catch (e) {
     console.warn("applyServerStateToLocal failed:", e);
   }
