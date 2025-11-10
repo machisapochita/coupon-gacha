@@ -325,6 +325,8 @@ function startGachaSequence() {
 
   // 再生が終わったら PR を再生するシーケンスを設定
   const onGachaEnded = async () => {
+    // 再生終了時 / スキップ時のクリーンアップ
+    removeSkipButton();
     gachaVideo.removeEventListener("ended", onGachaEnded);
 
     // 3) 当選店舗の PR 動画を再生
@@ -376,14 +378,34 @@ function startGachaSequence() {
     }
     gachaVideo.currentTime = 0;
     gachaVideo.addEventListener("ended", onGachaEnded);
+
+    // スキップフラグ（多重実行防止）
+    let gachaSkipped = false;
+
+    // スキップボタンを表示してクリックで onGachaEnded に移行する
+    const skipBtn = createSkipButton();
+    if (skipBtn) {
+      const onSkip = (ev) => {
+        ev && ev.preventDefault();
+        if (gachaSkipped) return;
+        gachaSkipped = true;
+        removeSkipButton();
+        try { gachaVideo.pause(); } catch(e) {}
+        try { /* ジャンプして ended を待たずに処理 */ onGachaEnded(); } catch(e) { console.warn(e); }
+      };
+      skipBtn.addEventListener("click", onSkip, { once: true });
+    }
+
     try {
       const res = await tryPlayWithSoundFallback(gachaVideo);
       if (res && res.muted) {
         console.info("gachaVideo playing muted (user gesture required to enable audio)");
       }
+      // 再生が始まったらそのままスキップボタンは有効（表示済み）
     } catch (err) {
       console.warn("gachaVideo play failed entirely:", err);
       // 再生できない場合は直接 PR に遷移
+      removeSkipButton();
       onGachaEnded();
     }
   })();
@@ -840,3 +862,23 @@ function tryPlayWithSoundFallback(videoEl) {
       }
     });
 }
+
+// --- 追加: gacha 演出スキップボタン生成/破棄ユーティリティ ---
+function createSkipButton() {
+  if (document.getElementById("skip-gacha-btn")) return;
+  const btn = document.createElement("button");
+  btn.id = "skip-gacha-btn";
+  btn.type = "button";
+  btn.textContent = "演出をスキップ";
+  btn.className = "skip-gacha-btn";
+  document.body.appendChild(btn);
+  return btn;
+}
+
+function removeSkipButton() {
+  const el = document.getElementById("skip-gacha-btn");
+  if (el) {
+    try { el.remove(); } catch(e) { el.parentNode && el.parentNode.removeChild(el); }
+  }
+}
+// --- 追加ここまで ---

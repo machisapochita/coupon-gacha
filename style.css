@@ -461,30 +461,32 @@ html, body {
   transform: scale(1.05);
 }
 
-/* ガチャ開始ボタンを中央・70%幅で表示 */
-.gacha-button-wrapper {
-  display: flex;
-  justify-content: center;
-  margin: 10px 0;
-}
-
-.gacha-button-image {
-  width: 80vw;
-  max-width: 400px;
+/* ガチャ演出スキップボタン（右下・safe-area 考慮） */
+.skip-gacha-btn {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 12px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  z-index: 3500; /* PR 再生より手前に出したい場合は更に大きくする */
+  background: #bdbdbd; /* グレー */
+  color: #111;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
   cursor: pointer;
-  transition: transform 0.2s ease-in-out;
+  touch-action: manipulation;
 }
-
-@keyframes zoomBounce {
-  0%   { transform: scale(1); }
-  30%  { transform: scale(1.05); }
-  60%  { transform: scale(0.95); }
-  100% { transform: scale(1); }
+/* 押下スタイル */
+.skip-gacha-btn:active {
+  transform: translateY(1px);
 }
-
-.gacha-button-image.zoom {
-  animation: zoomBounce 1.2s infinite;
-  transition: transform 0.2s ease-in-out;
+/* iOS 古いフォールバック */
+@supports (padding: constant(safe-area-inset-bottom)) {
+  .skip-gacha-btn {
+    right: calc(constant(safe-area-inset-right) + 12px);
+    bottom: calc(constant(safe-area-inset-bottom) + 16px);
+  }
 }
 
 /* 通常時：パルスのみ */
