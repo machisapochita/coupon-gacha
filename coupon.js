@@ -261,7 +261,7 @@ function openModal(store) {
 }
 
 // 送信先を一箇所で管理（ここに Apps Script の最新デプロイ URL を貼る）
-const LOG_URL = "https://script.google.com/macros/s/AKfycbyzv4PcZ0fKPO3wN7RkbAeW8-GUeJYjDD6gcTfhdIo_P4Vyl1VEa2A4HdTmn_HH423l/exec";
+const LOG_URL = "https://script.google.com/macros/s/AKfycbyeXtfLCqsp3aH6V2h7phVw14MRF803iprYx1aPgL6t8wX0Zfkok4xt6KmG4pusz2Hg/exec";
 
 // sendVideoLog と sendUsageLog を統一・詳細ログ出力
 function postLog(payload) {

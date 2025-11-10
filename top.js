@@ -11,4 +11,21 @@ document.addEventListener("DOMContentLoaded", () => {
     // ✅ ログインページへ遷移
     window.location.href = "index.html";
   });
+
+  function onLogin(userId) {
+    localStorage.setItem("userId", userId);
+    // サーバから state を取得してマージ
+    loadGachaStateFromServer(userId).then(res => {
+      if (res && res.status === "OK" && res.found) {
+        mergeAndApplyState(res.state || {});
+        // 画面遷移等を続行
+        window.location.href = "gacha.html";
+      } else {
+        window.location.href = "gacha.html";
+      }
+    }).catch(err => {
+      console.warn("load state failed:", err);
+      window.location.href = "gacha.html";
+    });
+  }
 });

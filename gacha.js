@@ -503,6 +503,14 @@ function addCoupon(store, prizeType) {
   } catch (e) {
     console.warn("updateCouponSummary failed:", e);
   }
+
+  // 追加: サーバーへの状態保存
+  const snapshot = {
+    coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
+    restaurantData: JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]"),
+    gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
+  };
+  saveGachaStateToServer(snapshot).then(res => console.log("state saved:", res)).catch(e => console.warn(e));
 }
 
 // ３．重賞の抽選
@@ -767,7 +775,7 @@ function sendVideoLog({ userId, storeId, storeName, prizeType, salonId }) {
     gachaCompleted
   };
 
-  const url = "https://script.google.com/macros/s/AKfycbyzv4PcZ0fKPO3wN7RkbAeW8-GUeJYjDD6gcTfhdIo_P4Vyl1VEa2A4HdTmn_HH423l/exec";
+  const url = "https://script.google.com/macros/s/AKfycbyeXtfLCqsp3aH6V2h7phVw14MRF803iprYx1aPgL6t8wX0Zfkok4xt6KmG4pusz2Hg/exec";
 
   // application/x-www-form-urlencoded で送る（プレフライト回避）
   return fetch(url, {
