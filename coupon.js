@@ -621,6 +621,33 @@ function markCouponUsedAndSync(couponIdentifier) {
   }
 }
 
-// 既存の confirm ボタンハンドラ内でローカル直接更新している箇所は上の関数呼び出しに置換してください。
-// 例:
-//   markCouponUsedAndSync(storeId).then(...).catch(...);
+// 安全 wrapper: stateSync がなければ従来の saveGachaStateToServer を使う
+function requestSaveSnapshotSafe(snapshot, immediate) {
+  if (window.stateSync) {
+    if (immediate) return window.stateSync.flushNow();
+    window.stateSync.requestSave(snapshot);
+    return Promise.resolve({ queued: true });
+  }
+  // フォールバック: 既存の saveGachaStateToServer があれば使う
+  if (typeof saveGachaStateToServer === "function") {
+    return saveGachaStateToServer(snapshot, { immediate: !!immediate });
+  }
+  // 最終フォールバック: 直接 POST
+  try {
+    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbyeXtfLCqsp3aH6V2h7phVw14MRF803iprYx1aPgL6t8wX0Zfkok4xt6KmG4pusz2Hg/exec";
+    const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
+    const userId = localStorage.getItem("userId");
+    if (!userId) return Promise.resolve({ skipped: true });
+    const payload = { eventType: "saveState", userId: userId, state: snapshot || {} };
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body: "data=" + encodeURIComponent(JSON.stringify(payload))
+    }).then(r => r.text()).then(t => { try { return JSON.parse(t); } catch(e){ return { raw: t }; }});
+  } catch (e) {
+    return Promise.reject(e);
+  }
+}
+
+// coupon の使用処理内では stateSync を直接参照せず上の wrapper を呼ぶようにしてください。
+// 例: requestSaveSnapshotSafe(snapshot) または requestSaveSnapshotSafe(snapshot, true)
