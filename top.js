@@ -43,26 +43,26 @@ document.addEventListener("DOMContentLoaded", () => {
         const restaurantsKey = `restaurantData_${userId}`;
         const gachaKey = `gachaState_${userId}`;
 
-        // ローカルに無ければサーバ側を採用する単純マージ（要件により変更可）
-        const localCoupons = JSON.parse(localStorage.getItem(couponsKey) || "null");
-        if ((!localCoupons || localCoupons.length === 0) && state.coupons) {
+        // ---------- サーバ優先ルール ----------
+        // サーバにある値でローカルを上書きする（存在するかは問わない）
+        if (state.coupons) {
           localStorage.setItem(couponsKey, JSON.stringify(state.coupons));
+        } else {
+          // サーバになければローカルはクリアしない（必要ならここで localStorage.removeItem を行う）
         }
 
-        const localRestaurants = JSON.parse(localStorage.getItem(restaurantsKey) || "null");
-        if ((!localRestaurants || localRestaurants.length === 0) && state.restaurantData) {
+        if (state.restaurantData) {
           localStorage.setItem(restaurantsKey, JSON.stringify(state.restaurantData));
         }
 
-        const localGacha = JSON.parse(localStorage.getItem(gachaKey) || "null");
-        if ((!localGacha || Object.keys(localGacha).length === 0) && state.gachaState) {
+        if (state.gachaState) {
           localStorage.setItem(gachaKey, JSON.stringify(state.gachaState));
         }
 
-        console.log("server state merged for user:", userId);
-        return { status: "merged", state: state };
+        console.log("server state applied (overwrite) for user:", userId);
+        return { status: "applied", state: state };
       } catch (e) {
-        console.warn("syncAfterLogin merge failed:", e);
+        console.warn("syncAfterLogin apply failed:", e);
         return { status: "error", error: String(e) };
       }
     }).catch(err => {
@@ -71,13 +71,12 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 例: 既存のログイン成功ハンドラに組み込む（onLogin の代わりに呼ぶ）
+  // 既存のログイン成功ハンドラに組み込む
   function onLoginSuccess(userId) {
     localStorage.setItem("userId", userId);
 
-    // サーバ状態取得を短時間待ってマージしてから画面遷移する（非同期で即遷移しても可）
+    // サーバ状態を優先して上書きしてから遷移（タイムアウト後は遷移）
     syncAfterLogin(userId, 3000).then(() => {
-      // マージ後の画面遷移（必要に応じ gacha.html や top.html へ）
       window.location.href = "gacha.html";
     }).catch(() => {
       window.location.href = "gacha.html";
