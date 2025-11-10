@@ -287,7 +287,7 @@ function openModal(store) {
 }
 
 // 送信先を一箇所で管理（ここに Apps Script の最新デプロイ URL を貼る）
-const LOG_URL = "https://script.google.com/macros/s/AKfycbxsJh03GE1CGgB9a8SUD2IdlsjoGZfKPlocSA7E-qNeezltL3NDPIfy9GRyb5_A-n8/exec";
+const LOG_URL = "https://script.google.com/macros/s/AKfycbxTsZVOZfn5xoySkypMrYt_6pd0xtNcTtaxOxRPvjZXqXttv1wd5U0vVSUZg5_W6KmT/exec";
 
 // sendVideoLog と sendUsageLog を統一・詳細ログ出力
 function postLog(payload) {
@@ -634,7 +634,7 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
   }
   // 最終フォールバック: 直接 POST
   try {
-    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxsJh03GE1CGgB9a8SUD2IdlsjoGZfKPlocSA7E-qNeezltL3NDPIfy9GRyb5_A-n8/exec";
+    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxTsZVOZfn5xoySkypMrYt_6pd0xtNcTtaxOxRPvjZXqXttv1wd5U0vVSUZg5_W6KmT/exec";
     const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
     const userId = localStorage.getItem("userId");
     if (!userId) return Promise.resolve({ skipped: true });
@@ -651,3 +651,14 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
 
 // coupon の使用処理内では stateSync を直接参照せず上の wrapper を呼ぶようにしてください。
 // 例: requestSaveSnapshotSafe(snapshot) または requestSaveSnapshotSafe(snapshot, true)
+
+// coupon.js: stateSync フォールバック（存在しない場合は簡易版を使う）
+if (typeof window.stateSync === "undefined") {
+  window.stateSync = {
+    requestSave: function(snapshot) { console.warn("stateSync missing: requestSave called", snapshot); return; },
+    flushNow: function() { return Promise.resolve({ skipped: true }); },
+    pause: function(){},
+    resume: function(){},
+    _debugState: function(){ return {}; }
+  };
+}
