@@ -295,11 +295,77 @@ function startGachaSequence() {
     localStorage.setItem("gachaCompleted", "false");
   }
 
+  // pause stateSync to avoid intermediate duplicate saveState posts
+  try { stateSync.pause(); } catch(e){}
+
   // 当選店舗をアンロックしてクーポンを用意（PR 再生前に状態を更新）
   store.prizeType = prizeType;
   store.unlocked = true;
   updateRestaurantData(store);
   addCoupon(store, prizeType);
+
+  // ここでガチャ実行ログを送る（エラーがあっても動作継続）
+  try {
+    const userId = localStorage.getItem("userId") || "unknown";
+    // safe salonId取得（getSalonId が未定義なら localStorage を参照）
+    let salonId = "unknown";
+    try {
+      salonId = (typeof getSalonId === "function") ? getSalonId() : (store.salonId || localStorage.getItem("salonId") || "unknown");
+    } catch (err) {
+      salonId = store.salonId || localStorage.getItem("salonId") || "unknown";
+    }
+    const payload = {
+      eventType: "gacha",
+      userId: userId,
+      storeId: store.storeId || store.id || "unknown",
+      storeName: store.name || "unknown",
+      salonId: salonId,
+      prizeType: prizeType,
+      gachaCompleted: (prizeType === "last-one")
+    };
+    // 既存のログ送信関数を使って post（sendGachaLog は既存関数名に置換してください）
+    try {
+      // sendGachaLog は既存のログ送信ユーティリティを想定
+      if (typeof sendGachaLog === "function") {
+        sendGachaLog(payload).catch(err => console.warn("gacha log send failed:", err));
+      } else {
+        // フォールバックで直に POST
+        const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || "");
+        if (url) {
+          fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+            body: "data=" + encodeURIComponent(JSON.stringify(payload))
+          }).catch(err => console.warn("gacha log send failed:", err));
+        }
+      }
+    } catch (err) {
+      console.warn("gacha log send failed:", err);
+    }
+  } catch (e) {
+    console.warn("gacha log prepare failed:", e);
+  }
+
+  // 最後に一回だけサーバへ snapshot を送信（resume して最新 snapshot を投げる）
+  try {
+    const uid = localStorage.getItem("userId");
+    if (uid) {
+      const snapshot = {
+        coupons: JSON.parse(localStorage.getItem(`myCoupons_${uid}`) || "[]"),
+        restaurantData: JSON.parse(localStorage.getItem(`restaurantData_${uid}`) || "[]"),
+        gachaState: JSON.parse(localStorage.getItem(`gachaState_${uid}`) || "{}")
+      };
+      // resume -> requestSave の順で確実に1送信に集約
+      stateSync.resume();
+      stateSync.requestSave(snapshot);
+      // すぐ送信したければ flushNow を呼ぶ（非同期挙動でよければ不要）
+      // stateSync.flushNow();
+    } else {
+      stateSync.resume();
+    }
+  } catch (e) {
+    stateSync.resume();
+  }
 
   // --- ここでガチャ実行ログを必ず送る（Apps Script の doPost が受け取る形式） ---
   try {
@@ -767,7 +833,7 @@ function updateRestaurantData(updatedStore) {
   localStorage.setItem(key, JSON.stringify(newData));
 }
 
-/* --- 追加: state 保存を集約・デバウンスするユーティリティ --- */
+/* --- stateSync: 集約 + デバウンス + pause/resume --- */
 const stateSync = (function () {
   const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbyeXtfLCqsp3aH6V2h7phVw14MRF803iprYx1aPgL6t8wX0Zfkok4xt6KmG4pusz2Hg/exec";
   const getUrl = () => (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
@@ -776,6 +842,7 @@ const stateSync = (function () {
   let pendingSnapshot = null;
   let lastSentHash = null;
   let inFlight = false;
+  let paused = false;
 
   function hashSnapshot(s) {
     try { return JSON.stringify(s); } catch (e) { return String(Date.now()); }
@@ -785,11 +852,10 @@ const stateSync = (function () {
     const uid = localStorage.getItem("userId");
     if (!uid) return Promise.resolve({ skipped: true, reason: "no userId" });
     const url = getUrl();
-    // ensure updatedAt
     snapshot = snapshot || {};
     snapshot.updatedAt = Date.now();
 
-    // attach updatedAt into local gacha state to avoid older overwrites
+    // persist updatedAt to local gacha state
     try {
       const gKey = `gachaState_${uid}`;
       const g = JSON.parse(localStorage.getItem(gKey) || "{}");
@@ -812,26 +878,17 @@ const stateSync = (function () {
   }
 
   return {
-    /**
-     * requestSave(snapshot)
-     * - snapshot: { coupons, restaurantData, gachaState }
-     * この呼び出しは短時間に複数回あっても debounced され 600ms 後に一回だけ送信される。
-     * 同じ内容の繰返し送信は suppress される。
-     */
     requestSave(snapshot) {
+      if (paused) {
+        // replace pending snapshot while paused (only keep latest)
+        pendingSnapshot = snapshot;
+        return;
+      }
       pendingSnapshot = snapshot;
-      // cancel existing timer
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        // dedupe identical payloads
         const h = hashSnapshot(pendingSnapshot || {});
-        if (h === lastSentHash) {
-          // nothing new
-          pendingSnapshot = null;
-          timer = null;
-          return;
-        }
-        // if currently sending, postpone a bit
+        if (h === lastSentHash) { pendingSnapshot = null; timer = null; return; }
         if (inFlight) {
           timer = setTimeout(() => { stateSync.requestSave(pendingSnapshot); }, 300);
           return;
@@ -841,19 +898,20 @@ const stateSync = (function () {
         timer = null;
       }, 600);
     },
-    // すぐ送信したい場合に利用
     flushNow() {
       if (timer) { clearTimeout(timer); timer = null; }
       if (pendingSnapshot) {
-        if (!inFlight) {
+        if (!inFlight && !paused) {
           doSend(pendingSnapshot).catch(err => console.warn("stateSync flush error:", err));
         } else {
-          // postpone once
           setTimeout(() => this.flushNow(), 300);
         }
         pendingSnapshot = null;
       }
-    }
+    },
+    pause() { paused = true; },
+    resume() { paused = false; if (pendingSnapshot) { this.requestSave(pendingSnapshot); } },
+    _debugState() { return { paused, inFlight, lastSentHash }; }
   };
 })();
 

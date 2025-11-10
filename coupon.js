@@ -563,7 +563,7 @@ document.addEventListener("DOMContentLoaded", () => {
  * クーポンをローカルで「使用済み」にしてサーバへ同期する
  * couponId は myCoupons_{userId} 配列内の一意の識別子（storeId 等）を想定
  */
-function markCouponUsedAndSync(couponId) {
+function markCouponUsedAndSync(couponIdentifier) {
   try {
     const userId = localStorage.getItem("userId");
     if (!userId) return Promise.resolve({ skipped: true });
@@ -574,60 +574,53 @@ function markCouponUsedAndSync(couponId) {
     const coupons = JSON.parse(localStorage.getItem(couponsKey) || "[]");
     const restaurants = JSON.parse(localStorage.getItem(restaurantsKey) || "[]");
 
-    // couponIdentifier は coupon.id か coupon.storeId を受け取れるようにする
     let found = false;
+    let targetStoreId = null;
     for (let i = 0; i < coupons.length; i++) {
       const c = coupons[i];
-      if (c.id === couponId || c.storeId === couponId) {
+      if (c.id === couponIdentifier || c.storeId === couponIdentifier) {
         if (!c.used) {
           c.used = true;
           c.usedAt = new Date().toISOString();
           coupons[i] = c;
           found = true;
         }
+        targetStoreId = c.storeId || c.storeId;
         break;
       }
     }
 
-    // store 側にも反映（storeId が分かれば mark）
-    for (let j = 0; j < restaurants.length; j++) {
-      const s = restaurants[j];
-      if (s.storeId === couponId || s.storeId === (coupons.find(x=>x.id===couponId)||{}).storeId) {
-        s.couponUsed = true;
-        restaurants[j] = s;
+    // restaurants 側にも反映（storeId で一致させる）
+    if (targetStoreId) {
+      for (let j = 0; j < restaurants.length; j++) {
+        const s = restaurants[j];
+        if (s.storeId === targetStoreId) {
+          s.couponUsed = true;
+          restaurants[j] = s;
+          break;
+        }
       }
     }
 
-    if (!found) {
-      // それでも UI は更新しておく
-      localStorage.setItem(couponsKey, JSON.stringify(coupons));
-      localStorage.setItem(restaurantsKey, JSON.stringify(restaurants));
-      renderCoupons();
-      return Promise.resolve({ skipped: true, reason: "coupon not found" });
-    }
-
-    // ローカル保存
+    // ローカル保存 & UI 更新
     localStorage.setItem(couponsKey, JSON.stringify(coupons));
     localStorage.setItem(restaurantsKey, JSON.stringify(restaurants));
+    try { renderCoupons(); } catch(e){}
 
-    // UI 更新
-    renderCoupons();
-
-    // state snapshot を作って stateSync に投げる（集約）
+    // 一回だけ集約して送る
     const snapshot = {
       coupons: coupons,
       restaurantData: restaurants,
       gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
     };
     stateSync.requestSave(snapshot);
-
-    return Promise.resolve({ ok: true });
+    return Promise.resolve({ ok: true, applied: found });
   } catch (err) {
     console.warn("markCouponUsedAndSync failed:", err);
     return Promise.reject(err);
   }
 }
 
-// 既存の confirm ボタン等で直接ローカル更新している箇所は
-// markCouponUsedAndSync(storeIdOrCouponId) を呼ぶように差し替えてください。
-// またボタンクリック時は button.disabled = true を使って多重送信を防いでください。
+// 既存の confirm ボタンハンドラ内でローカル直接更新している箇所は上の関数呼び出しに置換してください。
+// 例:
+//   markCouponUsedAndSync(storeId).then(...).catch(...);

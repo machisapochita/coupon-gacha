@@ -226,11 +226,10 @@ function unlockRestaurant(storeId) {
   const userId = localStorage.getItem("userId");
   if (!userId) return;
   const key = `restaurantData_${userId}`;
-  const data = JSON.parse(localStorage.getItem(key)) || [];
-  const index = data.findIndex(store => store.storeId === storeId);
-  if (index !== -1) {
-    data[index].unlocked = true;
-    // 保存 & 同期（集約）
+  const data = JSON.parse(localStorage.getItem(key) || "[]");
+  const idx = data.findIndex(s => s.storeId === storeId);
+  if (idx !== -1) {
+    data[idx].unlocked = true;
     localStorage.setItem(key, JSON.stringify(data));
     const snapshot = {
       coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
@@ -241,14 +240,14 @@ function unlockRestaurant(storeId) {
   }
 }
 
-function markCouponUsed(storeId) {
+function markCouponUsedOnRestaurant(storeId) {
   const userId = localStorage.getItem("userId");
   if (!userId) return;
   const key = `restaurantData_${userId}`;
-  const data = JSON.parse(localStorage.getItem(key)) || [];
-  const index = data.findIndex(store => store.storeId === storeId);
-  if (index !== -1) {
-    data[index].couponUsed = true;
+  const data = JSON.parse(localStorage.getItem(key) || "[]");
+  const idx = data.findIndex(s => s.storeId === storeId);
+  if (idx !== -1) {
+    data[idx].couponUsed = true;
     localStorage.setItem(key, JSON.stringify(data));
     const snapshot = {
       coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
