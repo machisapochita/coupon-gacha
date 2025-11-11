@@ -403,7 +403,14 @@ function startGachaSequence() {
     const salonId = getSalonId(); // return 既存の salonId or fallback
     console.log("sending gacha viewed log", { userId: uid, storeId: store.storeId, storeName: store.name, prizeType, salonId });
     // sendVideoLog は fetch を return するので Promise を受け取れる
-    sendVideoLog({ userId: uid, storeId: store.storeId, storeName: store.name, prizeType, salonId })
+    sendVideoLog({
+      userId: uid,
+      storeId: store.storeId,
+      storeName: store.name,
+      prizeType,
+      salonId,
+      eventSource: "gacha" // これを追加して viewed が skip されないようにする
+    })
       .then(res => console.log("sendVideoLog ok:", res))
       .catch(err => console.error("sendVideoLog error:", err));
   } catch (e) {

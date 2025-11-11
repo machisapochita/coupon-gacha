@@ -586,6 +586,7 @@ function markCouponUsedAndSync(couponIdentifier) {
 }
 
 // 安全 wrapper: stateSync がなければ従来の saveGachaStateToServer を使う
+// ...existing code...
 function requestSaveSnapshotSafe(snapshot, immediate) {
   if (window.stateSync) {
     if (immediate) return window.stateSync.flushNow();
@@ -612,6 +613,9 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
     return Promise.reject(e);
   }
 }
+
+// ここを追加: 他スクリプトから呼べるようにグローバルに公開
+window.requestSaveSnapshotSafe = requestSaveSnapshotSafe;
 
 // coupon の使用処理内では stateSync を直接参照せず上の wrapper を呼ぶようにしてください。
 // 例: requestSaveSnapshotSafe(snapshot) または requestSaveSnapshotSafe(snapshot, true)

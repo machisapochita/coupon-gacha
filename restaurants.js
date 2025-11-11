@@ -1,7 +1,14 @@
-let restaurantData = JSON.parse(localStorage.getItem("restaurantData"));
-if (!Array.isArray(restaurantData)) {
-  console.warn("店舗データが配列ではありません");
-  restaurantData = window.initialRestaurantData || []; // fallback（念のため）
+const currentUserId = localStorage.getItem("userId") || "";
+const restaurantsKeyTop = `restaurantData_${currentUserId}`;
+let restaurantData = JSON.parse(localStorage.getItem(restaurantsKeyTop) || "[]");
+
+if (!Array.isArray(restaurantData) || restaurantData.length === 0) {
+  console.warn("店舗データが配列ではないか空です。window.initialRestaurantData から初期化します");
+  restaurantData = Array.isArray(window.initialRestaurantData) ? window.initialRestaurantData.slice() : [];
+  // userId がある場合は localStorage に保存しておく
+  if (currentUserId) {
+    localStorage.setItem(restaurantsKeyTop, JSON.stringify(restaurantData));
+  }
 }
 
 document.querySelector(".close-button").addEventListener("click", () => {
@@ -83,21 +90,34 @@ function renderRestaurants() {
   });
   if (changed) {
     localStorage.setItem(restaurantsKey, JSON.stringify(restaurants));
-    // 追加: 差分があればサーバにも保存（即時）
     try {
       const snapshot = {
         coupons: coupons,
         restaurantData: restaurants,
         gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
       };
-      if (typeof requestSaveSnapshotSafe === "function") {
-        requestSaveSnapshotSafe(snapshot, true).then(r => {
+      if (typeof window.requestSaveSnapshotSafe === "function") {
+        window.requestSaveSnapshotSafe(snapshot, true).then(r => {
           console.info("restaurants.js: saved snapshot after recompute:", r);
         }).catch(e => {
           console.warn("restaurants.js: save snapshot failed:", e);
         });
+      } else if (typeof saveGachaStateToServer === "function") {
+        saveGachaStateToServer(snapshot, { immediate: true }).then(r => {
+          console.info("restaurants.js: saved snapshot (fallback) after recompute:", r);
+        }).catch(e => console.warn("restaurants.js: fallback save failed:", e));
       } else {
-        console.warn("restaurants.js: requestSaveSnapshotSafe not available, skipping server save");
+        // 最終フォールバック: 直接 POST
+        const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || null);
+        if (url && userId) {
+          fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+            body: "data=" + encodeURIComponent(JSON.stringify({ eventType: "saveState", userId, state: snapshot }))
+          }).then(r => r.text()).then(t => console.info("restaurants.js: direct POST result:", t)).catch(e => console.warn("restaurants.js: direct POST failed:", e));
+        } else {
+          console.warn("restaurants.js: requestSaveSnapshotSafe not available, skipping server save");
+        }
       }
     } catch (e) {
       console.warn("restaurants.js: error while trying to save snapshot", e);
