@@ -391,53 +391,113 @@ function playModalPR(store) {
   // sendVideoLog({... , eventSource: "modal"});
 }
 
+// ---- START: applyServerStateToLocal ----
 async function applyServerStateToLocal(serverState, userId) {
-  // 1) pause stateSync if available
-  if (window.stateSync && typeof window.stateSync.pause === 'function') {
-    try { window.stateSync.pause(); } catch(e){ console.warn('pause failed', e); }
-  }
-
-  // 2) set applying flag so other code (save wrapper) skips saves
   window.__applyingServerState = true;
-  try {
-    // serverState.coupons が存在すると想定
-    const serverCoupons = (serverState && serverState.coupons) || [];
-    const localKey = `myCoupons_${userId}`;
-    const localCoupons = JSON.parse(localStorage.getItem(localKey) || '[]');
+  // pause stateSync if possible to avoid it triggering save while we write
+  const paused = (window.stateSync && typeof window.stateSync.pause === 'function') ? (() => { try { window.stateSync.pause(); return true; } catch(e){ return false; } })() : false;
 
-    // マージ：coupon を識別するキー（例 storeId, couponId など）でマージ
+  try {
+    if (!userId) userId = localStorage.getItem('userId');
+    if (!userId) {
+      console.warn('applyServerStateToLocal: no userId');
+      return;
+    }
+
+    // serverState may have: coupons, restaurantData, gachaState
+    const serverCoupons = (serverState && serverState.coupons) ? serverState.coupons : [];
+    const serverRestaurants = (serverState && serverState.restaurantData) ? serverState.restaurantData : [];
+    const serverGacha = (serverState && serverState.gachaState) ? serverState.gachaState : null;
+
+    // Local keys
+    const couponsKey = `myCoupons_${userId}`;
+    const restaurantsKey = `restaurantData_${userId}`;
+    const gachaKey = `gachaState_${userId}`;
+
+    // Merge coupons: server first, but keep local.used === true (OR rule). Use storeId/id/baseId as key.
     const map = new Map();
-    // server first: keep server.used
-    serverCoupons.forEach(c => {
-      const id = c.storeId || c.couponId || JSON.stringify(c); // 適切なキーに置換
-      map.set(id, Object.assign({}, c, { used: !!c.used }));
+    const keyOf = (c) => c && (c.storeId || c.id || c.baseId || JSON.stringify(c));
+
+    (serverCoupons || []).forEach(c => {
+      const k = keyOf(c);
+      map.set(k, Object.assign({}, c, { used: !!c.used, usedAt: c.usedAt || null }));
     });
-    // then merge local: if local has used=true keep it (OR)
-    localCoupons.forEach(c => {
-      const id = c.storeId || c.couponId || JSON.stringify(c);
-      const existing = map.get(id);
+
+    let localCoupons = [];
+    try { localCoupons = JSON.parse(localStorage.getItem(couponsKey) || '[]'); } catch(e){ localCoupons = []; }
+
+    (localCoupons || []).forEach(c => {
+      const k = keyOf(c);
+      const existing = map.get(k);
       if (existing) {
-        existing.used = !!existing.used || !!c.used; // ORルール
-        // 任意: タイムスタンプがあれば newer を優先する処理を入れる
+        // keep used = existing.used || local.used (OR)
+        existing.used = !!existing.used || !!c.used;
+        if (!existing.used && c.used && c.usedAt) existing.usedAt = c.usedAt;
+        map.set(k, existing);
       } else {
-        map.set(id, Object.assign({}, c));
+        map.set(k, Object.assign({}, c));
       }
     });
 
-    const merged = Array.from(map.values());
-    localStorage.setItem(localKey, JSON.stringify(merged));
-    console.log('applyServerStateToLocal: wrote merged coupons, count=', merged.length);
+    const mergedCoupons = Array.from(map.values());
+    localStorage.setItem(couponsKey, JSON.stringify(mergedCoupons));
+    console.log('applyServerStateToLocal: mergedCoupons written,', mergedCoupons.length);
 
-    // 必要なら restaurants 用の restaurantData_{userId} も同様に書き換える
-    // ...（同様のガード付きで）...
+    // Restaurants: server priority; if local has extra fields like couponUsed from UI, try to merge that boolean
+    let localRestaurants = [];
+    try { localRestaurants = JSON.parse(localStorage.getItem(restaurantsKey) || '[]'); } catch(e){ localRestaurants = []; }
+
+    const rmap = new Map();
+    const rKeyOf = (r) => r && (r.storeId || r.id || r.baseId || JSON.stringify(r));
+
+    (serverRestaurants || []).forEach(r => {
+      rmap.set(rKeyOf(r), Object.assign({}, r));
+    });
+
+    (localRestaurants || []).forEach(r => {
+      const k = rKeyOf(r);
+      const existing = rmap.get(k);
+      if (existing) {
+        // preserve couponUsed if local had true
+        existing.couponUsed = !!existing.couponUsed || !!r.couponUsed;
+        rmap.set(k, existing);
+      } else {
+        rmap.set(k, Object.assign({}, r));
+      }
+    });
+
+    const mergedRestaurants = Array.from(rmap.values());
+    localStorage.setItem(restaurantsKey, JSON.stringify(mergedRestaurants));
+    console.log('applyServerStateToLocal: mergedRestaurants written,', mergedRestaurants.length);
+
+    // gachaState: prefer server if present, otherwise preserve local
+    if (serverGacha) {
+      localStorage.setItem(gachaKey, JSON.stringify(serverGacha));
+      console.log('applyServerStateToLocal: gachaState written from server');
+    } else {
+      // keep existing local gacha
+      console.log('applyServerStateToLocal: server gachaState not present; leaving local gacha');
+    }
+
+    // UI 更新
+    try { if (typeof window.renderCoupons === 'function') window.renderCoupons(); } catch(e){ console.warn(e); }
+    try { if (typeof window.renderRestaurants === 'function') window.renderRestaurants(); } catch(e){ console.warn(e); }
 
   } finally {
-    // 解除
+    // restore
     window.__applyingServerState = false;
-    if (window.stateSync && typeof window.stateSync.resume === 'function') {
+    if (paused && window.stateSync && typeof window.stateSync.resume === 'function') {
       try { window.stateSync.resume(); } catch(e){ console.warn('resume failed', e); }
     }
   }
+}
+// ---- END: applyServerStateToLocal ----
+
+// 例: fetch exec?action=getState... の then(parsedServerState => { ... })
+if (parsedServerState) {
+  applyServerStateToLocal(parsedServerState, localStorage.getItem('userId'));
+} else {
+  // fallback: nothing to apply
 }
 
 

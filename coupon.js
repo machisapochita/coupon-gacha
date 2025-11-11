@@ -585,48 +585,81 @@ function markCouponUsedAndSync(couponIdentifier) {
   }
 }
 
-// 安全 wrapper: stateSync がなければ従来の saveGachaStateToServer を使う
-// ...existing code...
+// ---- START: enhanced requestSaveSnapshotSafe ----
 function requestSaveSnapshotSafe(snapshot, immediate) {
-  if (window.stateSync) {
-    if (immediate) return window.stateSync.flushNow();
-    window.stateSync.requestSave(snapshot);
-    return Promise.resolve({ queued: true });
+  // グローバルフラグの初期化（他スクリプトが参照できるように window に置く）
+  window.__applyingServerState = window.__applyingServerState || false;
+  window.__lastSavedSnapshotJson = window.__lastSavedSnapshotJson || null;
+
+  // 1) サーバ適用中は保存を行わない（安全ガード）
+  if (window.__applyingServerState) {
+    console.log('requestSaveSnapshotSafe: skipping save because applyingServerState is true');
+    return Promise.resolve({ skipped: true, reason: 'applyingServerState' });
   }
-  // フォールバック: 既存の saveGachaStateToServer があれば使う
-  if (typeof saveGachaStateToServer === "function") {
-    return saveGachaStateToServer(snapshot, { immediate: !!immediate });
-  }
-  // 最終フォールバック: 直接 POST
+
+  // 2) 差分チェック: 直前に保存した JSON と同じならスキップ（不必要な POST を削減）
+  let snapshotJson = null;
   try {
-    const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxTsZVOZfn5xoySkypMrYt_6pd0xtNcTtaxOxRPvjZXqXttv1wd5U0vVSUZg5_W6KmT/exec";
-    const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
-    const userId = localStorage.getItem("userId");
-    if (!userId) return Promise.resolve({ skipped: true });
-    const payload = { eventType: "saveState", userId: userId, state: snapshot || {} };
-    return fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-      body: "data=" + encodeURIComponent(JSON.stringify(payload))
-    }).then(r => r.text()).then(t => { try { return JSON.parse(t); } catch(e){ return { raw: t }; }});
+    snapshotJson = JSON.stringify(snapshot);
+    if (window.__lastSavedSnapshotJson === snapshotJson) {
+      return Promise.resolve({ skipped: true, reason: 'no-change' });
+    }
   } catch (e) {
-    return Promise.reject(e);
+    // stringify に失敗したら差分チェックは諦めて続行
+    console.warn('requestSaveSnapshotSafe: stringify failed, proceeding with save', e);
   }
-}
 
-// ここを追加: 他スクリプトから呼べるようにグローバルに公開
-window.requestSaveSnapshotSafe = requestSaveSnapshotSafe;
+  // 3) 実際の保存処理（既存の stateSync / saveGachaStateToServer / 最終フォールバックを利用）
+  const doSave = () => {
+    if (window.stateSync && typeof window.stateSync.requestSave === 'function') {
+      try {
+        if (immediate && typeof window.stateSync.flushNow === 'function') {
+          return window.stateSync.flushNow();
+        }
+        window.stateSync.requestSave(snapshot);
+        // stateSync.requestSave は同期キュー登録の可能性があるので Promise で成功を返す
+        return Promise.resolve({ queued: true });
+      } catch (e) {
+        console.warn('stateSync.requestSave failed, falling back', e);
+      }
+    }
 
-// coupon の使用処理内では stateSync を直接参照せず上の wrapper を呼ぶようにしてください。
-// 例: requestSaveSnapshotSafe(snapshot) または requestSaveSnapshotSafe(snapshot, true)
+    if (typeof saveGachaStateToServer === 'function') {
+      try {
+        return Promise.resolve(saveGachaStateToServer(snapshot, { immediate: !!immediate }));
+      } catch (e) {
+        console.warn('saveGachaStateToServer failed, falling back', e);
+      }
+    }
 
-// coupon.js: stateSync フォールバック（存在しない場合は簡易版を使う）
-if (typeof window.stateSync === "undefined") {
-  window.stateSync = {
-    requestSave: function(snapshot) { console.warn("stateSync missing: requestSave called", snapshot); return; },
-    flushNow: function() { return Promise.resolve({ skipped: true }); },
-    pause: function(){},
-    resume: function(){},
-    _debugState: function(){ return {}; }
+    // 最終フォールバック: 直接 POST
+    try {
+      const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxTsZVOZfn5xoySkypMrYt_6pd0xtNcTtaxOxRPvjZXqXttv1wd5U0vVSUZg5_W6KmT/exec";
+      const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
+      const userId = localStorage.getItem("userId");
+      if (!userId) return Promise.resolve({ skipped: true, reason: 'no-user' });
+      const payload = { eventType: "saveState", userId: userId, state: snapshot || {} };
+      return fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+        body: "data=" + encodeURIComponent(JSON.stringify(payload))
+      })
+      .then(r => r.text())
+      .then(t => { try { return JSON.parse(t); } catch(e){ return { raw: t }; } });
+    } catch (e) {
+      return Promise.reject(e);
+    }
   };
+
+  return doSave().then(res => {
+    // 成功（または queued）であれば lastSavedSnapshotJson を更新
+    try { if (snapshotJson) window.__lastSavedSnapshotJson = snapshotJson; } catch(e){}
+    return res;
+  }).catch(err => {
+    console.warn('requestSaveSnapshotSafe: save failed', err);
+    throw err;
+  });
 }
+// expose
+window.requestSaveSnapshotSafe = requestSaveSnapshotSafe;
+// ---- END: enhanced requestSaveSnapshotSafe ----
