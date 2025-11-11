@@ -3,7 +3,7 @@ const restaurantData = JSON.parse(localStorage.getItem(`restaurantData_${userId}
 
 // --- ここを追加: ページ単位で window.LOG_URL を設定できるようにする ---
 // 優先順: window.LOG_URL (HTML側で設定) -> 埋め込みフォールバック
-const LOG_URL = (typeof window !== "undefined" && window.LOG_URL) ? window.LOG_URL : "https://script.google.com/macros/s/AKfycbxTsZVOZfn5xoySkypMrYt_6pd0xtNcTtaxOxRPvjZXqXttv1wd5U0vVSUZg5_W6KmT/exec";
+const LOG_URL = (typeof window !== "undefined" && window.LOG_URL) ? window.LOG_URL : "https://script.google.com/macros/s/AKfycbw2rVWPotm9x_pEm-2fciLMK0Hq1ritAGFxZUrnn2a7hVp5BEvNZOY49xoqcxGOdLZH/exec";
 // -----------------------------------------------------------------------
 
 function renderCoupons() {
@@ -634,7 +634,7 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
 
     // 最終フォールバック: 直接 POST
     try {
-      const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxTsZVOZfn5xoySkypMrYt_6pd0xtNcTtaxOxRPvjZXqXttv1wd5U0vVSUZg5_W6KmT/exec";
+      const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbw2rVWPotm9x_pEm-2fciLMK0Hq1ritAGFxZUrnn2a7hVp5BEvNZOY49xoqcxGOdLZH/exec";
       const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
       const userId = localStorage.getItem("userId");
       if (!userId) return Promise.resolve({ skipped: true, reason: 'no-user' });
