@@ -1,34 +1,44 @@
 // グローバルガード（ファイル頭か共通ヘルパで一度だけ）
 window.__applyingServerState = window.__applyingServerState || false;
 
-// 既存の requestSaveSnapshotSafe の冒頭に追加（またはその wrapper を更新）
+// --- requestSaveSnapshotSafe の冒頭ガード（apply 中はキュー化してスキップ） ---
 function requestSaveSnapshotSafe(snapshot, immediate) {
-  console.log("📦 Saving snapshot:", snapshot);
-  // もしサーバ適用中なら保存をスキップ（resolved Promise を返す）
-  if (window.__applyingServerState) {
-    console.log('requestSaveSnapshotSafe: skipping save because applyingServerState is true');
-    return Promise.resolve({ skipped: true });
+  // ensure updatedAt exists on snapshot and nested gachaState
+  snapshot = snapshot || {};
+  snapshot.updatedAt = snapshot.updatedAt || Date.now();
+  if (snapshot.state && snapshot.state.gachaState) {
+    snapshot.state.gachaState.updatedAt = snapshot.state.gachaState.updatedAt || snapshot.updatedAt;
   }
 
-  // 追加: 簡易的な差分チェック（直前に保存した JSON と同じならスキップ）
-  try {
-    if (window.__lastSavedSnapshotJson === JSON.stringify(snapshot)) {
-      // 変化なし
-      return Promise.resolve({ skipped: true, reason: 'no-change' });
-    }
-  } catch (e) { /* ignore stringify errors */ }
+  // apply 中は保存をスキップしてキュー化（最後に一度だけ送る）
+  if (window.__applyingServerState) {
+    console.log('requestSaveSnapshotSafe: currently applying server state — queueing snapshot (skipped for now)');
+    // store minimal queued info: userId to flush after apply
+    try {
+      // queued snapshot may be heavy; we can store userId only and let saveStateSnapshotNow rebuild snapshot from localStorage after apply
+      if (snapshot && snapshot.userId) {
+        window.__queuedSnapshotUserId = snapshot.userId;
+      } else if (typeof snapshot.userId === 'undefined') {
+        // try to find userId from snapshot.state or existing localStorage
+        const uid = (snapshot.state && snapshot.state.userId) || localStorage.getItem('userId');
+        window.__queuedSnapshotUserId = uid;
+      }
+    } catch(e) { console.error(e); }
+    // keep one queued marker
+    window.__queuedSnapshot = true;
+    // resolve so callers don't hang
+    return Promise.resolve({ skippedDuringApply: true });
+  }
 
-  // 既存の保存処理に進む（例: stateSync.requestSave(...) / fetch POST）
-  // ... 既存コードを呼ぶ ...
-  const result = window.stateSync && window.stateSync.requestSave
-    ? window.stateSync.requestSave(snapshot, immediate)
-    : saveSnapshotToServerFallback(snapshot, immediate);
-
-  // 成功時に lastSavedSnapshotJson を更新するラッパー
-  return Promise.resolve(result).then(res => {
+  // 以下は既存の保存フロー（stateSync / fetch など）を続行してください
+  console.log('📦 Saving snapshot:', snapshot);
+  // 例: use window.stateSync if available, else fallback
+  const sender = (window.stateSync && window.stateSync.requestSave) ? window.stateSync.requestSave : saveSnapshotToServerFallback;
+  return Promise.resolve(sender(snapshot, immediate)).then(res => {
+    // 成功時の last-saved 更新
     try { window.__lastSavedSnapshotJson = JSON.stringify(snapshot); } catch(e){}
     return res;
-  });
+  }).catch(err => { console.error('requestSaveSnapshotSafe: send error', err); throw err; });
 }
 
 // DOM要素の取得
@@ -1348,35 +1358,96 @@ async function loadGachaStateFromServer(userId) {
   }
 }
 
+// --- applyServerStateToLocal を安全に置き換え（server -> local のマージと apply ガード） ---
 function applyServerStateToLocal(payload, userId) {
-  // payload: { status, found, state: { coupons, restaurantData, gachaState, updatedAt } }
-  if (!payload || !payload.found || !payload.state) return false;
-  const server = payload.state;
-  // compare updatedAt to avoid overwriting newer local data
-  const serverTs = server.updatedAt || server._serverReceivedAt || 0;
-  // read local snapshot ts if any
-  const localGacha = JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}");
-  const localTs = localGacha && localGacha.updatedAt ? localGacha.updatedAt : 0;
-  if (serverTs && localTs && localTs > serverTs) {
-    console.info("local state is newer than server — skipping overwrite");
-    return false;
+  if (!payload || !payload.state) {
+    console.log('applyServerStateToLocal: no payload.state');
+    return;
   }
-  // apply coupons
-  if (server.coupons) {
-    try { localStorage.setItem(`myCoupons_${userId}`, JSON.stringify(server.coupons)); } catch(e){ console.warn(e); }
+  console.log('applyServerStateToLocal: start', userId);
+
+  // ガードを立てる（apply 中は保存を遅延させる）
+  window.__applyingServerState = true;
+
+  try {
+    const serverState = payload.state || {};
+    const serverRootUpdatedAt = payload.updatedAt || serverState.updatedAt || 0;
+    const serverGachaUpdatedAt = serverState.gachaState && serverState.gachaState.updatedAt ? serverState.gachaState.updatedAt : 0;
+
+    // keys
+    const gachaKey = `gachaState_${userId}`;
+    const restaurantKey = `restaurantData_${userId}`;
+    const couponsKey = `myCoupons_${userId}`;
+
+    // 現在のローカル値
+    const localGacha = JSON.parse(localStorage.getItem(gachaKey) || 'null');
+    const localRestaurants = JSON.parse(localStorage.getItem(restaurantKey) || 'null');
+    const localCoupons = JSON.parse(localStorage.getItem(couponsKey) || 'null');
+
+    // --- gachaState のマージ（サーバの方が新しければ上書き） ---
+    if (serverState.gachaState) {
+      const localGachaUpdated = localGacha && (localGacha.updatedAt || 0);
+      if (serverGachaUpdatedAt > localGachaUpdated) {
+        const newGacha = Object.assign({}, serverState.gachaState);
+        // もし updatedAt が無ければ補う
+        if (!newGacha.updatedAt) newGacha.updatedAt = serverGachaUpdatedAt || serverRootUpdatedAt || Date.now();
+        localStorage.setItem(gachaKey, JSON.stringify(newGacha));
+        console.log('applyServerStateToLocal: applied server gachaState (updatedAt)', newGacha.updatedAt);
+      } else {
+        console.log('applyServerStateToLocal: skipped gacha overwrite (local is newer)', { localGachaUpdated, serverGachaUpdatedAt });
+      }
+    }
+
+    // --- restaurantData のマージ (root updatedAt で判断) ---
+    if (Array.isArray(serverState.restaurantData)) {
+      const localRestaurantsUpdated = (localRestaurants && localRestaurants.updatedAt) ? localRestaurants.updatedAt : 0;
+      // 多くのケースで restaurantData に個別 updatedAt が無いため root updatedAt で判定
+      if ((serverRootUpdatedAt || 0) > (localRestaurantsUpdated || 0)) {
+        // store 配列そのまま置き換える（要件によりマージ戦略を変更可）
+        const newRestaurants = Array.isArray(serverState.restaurantData) ? serverState.restaurantData.slice() : [];
+        // 付加情報として updatedAt を置いておく
+        newRestaurants.updatedAt = serverRootUpdatedAt || Date.now();
+        localStorage.setItem(restaurantKey, JSON.stringify(newRestaurants));
+        console.log('applyServerStateToLocal: applied server restaurantData (count)', newRestaurants.length);
+      } else {
+        console.log('applyServerStateToLocal: skipped restaurantData overwrite (local is newer)');
+      }
+    }
+
+    // --- coupons のマージ（サーバが新しければ置き換え） ---
+    if (Array.isArray(serverState.coupons)) {
+      const localCouponsUpdated = (localCoupons && localCoupons.updatedAt) ? localCoupons.updatedAt : 0;
+      if ((serverRootUpdatedAt || 0) > (localCouponsUpdated || 0)) {
+        const newCoupons = serverState.coupons.slice();
+        newCoupons.updatedAt = serverRootUpdatedAt || Date.now();
+        localStorage.setItem(couponsKey, JSON.stringify(newCoupons));
+        console.log('applyServerStateToLocal: applied server coupons (count)', newCoupons.length);
+      } else {
+        console.log('applyServerStateToLocal: skipped coupons overwrite (local is newer)');
+      }
+    }
+
+    // 必要なら UI を更新（restaurants.js 等で使われる updateStatusArea / renderRestaurants を呼び出す）
+    try { updateStatusArea && updateStatusArea(); } catch (e) {}
+    try { renderRestaurants && renderRestaurants(); } catch (e) {}
+
+  } catch (err) {
+    console.error('applyServerStateToLocal: error', err);
+  } finally {
+    // apply 完了 — 少し遅延してフラグ解除し、もし保存がキューされていればフラッシュする
+    setTimeout(() => {
+      window.__applyingServerState = false;
+      // flush queued snapshot if exists
+      if (window.__queuedSnapshotUserId && typeof window.saveStateSnapshotNow === 'function') {
+        const queuedUid = window.__queuedSnapshotUserId;
+        console.log('applyServerStateToLocal: flushing queued snapshot for', queuedUid);
+        // clear before calling to avoid recursion
+        window.__queuedSnapshotUserId = null;
+        window.__queuedSnapshot = null;
+        try { window.saveStateSnapshotNow(queuedUid); } catch (e) { console.error(e); }
+      }
+    }, 50);
   }
-  if (server.restaurantData) {
-    try { localStorage.setItem(`restaurantData_${userId}`, JSON.stringify(server.restaurantData)); } catch(e){ console.warn(e); }
-  }
-  if (server.gachaState) {
-    try {
-      // preserve updatedAt
-      const g = Object.assign({}, server.gachaState);
-      if (!g.updatedAt) g.updatedAt = serverTs || Date.now();
-      localStorage.setItem(`gachaState_${userId}`, JSON.stringify(g));
-    } catch(e){ console.warn(e); }
-  }
-  return true;
 }
 
 // --- START: snapshot helper + guaranteed save calls (追加) ---
@@ -1421,16 +1492,19 @@ window.buildSnapshotForUser = buildSnapshotForUser; // for manual testing
 
 // wrapper to request save and log what we send (helps debugging)
 function saveStateSnapshotNow(userId) {
-  const snapshot = buildSnapshotForUser(userId);
-  try { console.log('⤴️ saveStateSnapshotNow: snapshot ->', snapshot); } catch(e){}
-  // requestSaveSnapshotSafe が既に存在していれば呼ぶ（coupon.js で定義済み）
-  if (typeof requestSaveSnapshotSafe === 'function') {
-    return requestSaveSnapshotSafe({ coupons: snapshot.coupons, restaurantData: snapshot.restaurantData, gachaState: snapshot.gachaState }, true)
-      .then(res => { console.log('saveStateSnapshotNow: saved ->', res); return res; })
-      .catch(err => { console.warn('saveStateSnapshotNow: save failed ->', err); throw err; });
-  } else {
-    console.warn('saveStateSnapshotNow: requestSaveSnapshotSafe not found');
-    return Promise.resolve({ skipped: true, reason: 'no-save-wrapper' });
+  try {
+    const snapshot = buildSnapshotForUser(userId);
+    snapshot.updatedAt = Date.now();
+    if (!snapshot.state) snapshot.state = {};
+    snapshot.state.gachaState = snapshot.state.gachaState || {};
+    snapshot.state.gachaState.updatedAt = snapshot.state.gachaState.updatedAt || snapshot.updatedAt;
+    // mark userId for queued-flush logic
+    snapshot.userId = userId;
+    console.log('⤴️ saveStateSnapshotNow: snapshot ->', snapshot);
+    return requestSaveSnapshotSafe(snapshot, true);
+  } catch (e) {
+    console.error('saveStateSnapshotNow error', e);
+    return Promise.reject(e);
   }
 }
 window.saveStateSnapshotNow = saveStateSnapshotNow;
