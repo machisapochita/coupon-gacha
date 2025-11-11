@@ -391,4 +391,53 @@ function playModalPR(store) {
   // sendVideoLog({... , eventSource: "modal"});
 }
 
+async function applyServerStateToLocal(serverState, userId) {
+  // 1) pause stateSync if available
+  if (window.stateSync && typeof window.stateSync.pause === 'function') {
+    try { window.stateSync.pause(); } catch(e){ console.warn('pause failed', e); }
+  }
+
+  // 2) set applying flag so other code (save wrapper) skips saves
+  window.__applyingServerState = true;
+  try {
+    // serverState.coupons が存在すると想定
+    const serverCoupons = (serverState && serverState.coupons) || [];
+    const localKey = `myCoupons_${userId}`;
+    const localCoupons = JSON.parse(localStorage.getItem(localKey) || '[]');
+
+    // マージ：coupon を識別するキー（例 storeId, couponId など）でマージ
+    const map = new Map();
+    // server first: keep server.used
+    serverCoupons.forEach(c => {
+      const id = c.storeId || c.couponId || JSON.stringify(c); // 適切なキーに置換
+      map.set(id, Object.assign({}, c, { used: !!c.used }));
+    });
+    // then merge local: if local has used=true keep it (OR)
+    localCoupons.forEach(c => {
+      const id = c.storeId || c.couponId || JSON.stringify(c);
+      const existing = map.get(id);
+      if (existing) {
+        existing.used = !!existing.used || !!c.used; // ORルール
+        // 任意: タイムスタンプがあれば newer を優先する処理を入れる
+      } else {
+        map.set(id, Object.assign({}, c));
+      }
+    });
+
+    const merged = Array.from(map.values());
+    localStorage.setItem(localKey, JSON.stringify(merged));
+    console.log('applyServerStateToLocal: wrote merged coupons, count=', merged.length);
+
+    // 必要なら restaurants 用の restaurantData_{userId} も同様に書き換える
+    // ...（同様のガード付きで）...
+
+  } finally {
+    // 解除
+    window.__applyingServerState = false;
+    if (window.stateSync && typeof window.stateSync.resume === 'function') {
+      try { window.stateSync.resume(); } catch(e){ console.warn('resume failed', e); }
+    }
+  }
+}
+
 

@@ -1,3 +1,35 @@
+// グローバルガード（ファイル頭か共通ヘルパで一度だけ）
+window.__applyingServerState = window.__applyingServerState || false;
+
+// 既存の requestSaveSnapshotSafe の冒頭に追加（またはその wrapper を更新）
+function requestSaveSnapshotSafe(snapshot, immediate) {
+  // もしサーバ適用中なら保存をスキップ（resolved Promise を返す）
+  if (window.__applyingServerState) {
+    console.log('requestSaveSnapshotSafe: skipping save because applyingServerState is true');
+    return Promise.resolve({ skipped: true });
+  }
+
+  // 追加: 簡易的な差分チェック（直前に保存した JSON と同じならスキップ）
+  try {
+    if (window.__lastSavedSnapshotJson === JSON.stringify(snapshot)) {
+      // 変化なし
+      return Promise.resolve({ skipped: true, reason: 'no-change' });
+    }
+  } catch (e) { /* ignore stringify errors */ }
+
+  // 既存の保存処理に進む（例: stateSync.requestSave(...) / fetch POST）
+  // ... 既存コードを呼ぶ ...
+  const result = window.stateSync && window.stateSync.requestSave
+    ? window.stateSync.requestSave(snapshot, immediate)
+    : saveSnapshotToServerFallback(snapshot, immediate);
+
+  // 成功時に lastSavedSnapshotJson を更新するラッパー
+  return Promise.resolve(result).then(res => {
+    try { window.__lastSavedSnapshotJson = JSON.stringify(snapshot); } catch(e){}
+    return res;
+  });
+}
+
 // DOM要素の取得
 const gachaButton = document.getElementById('gacha-button');
 const loopVideo = document.getElementById("loop-video");
