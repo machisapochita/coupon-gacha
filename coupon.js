@@ -564,48 +564,21 @@ function markCouponUsedAndSync(couponIdentifier) {
     try { renderCoupons(); } catch(e) {}
     try { if (typeof window.renderRestaurants === "function") window.renderRestaurants(); } catch(e){}
 
-    // 以下は既存のサーバ同期ロジックをそのまま利用（stateSync / saveGachaStateToServer / direct POST の優先順）
+    // ここからサーバ同期ロジックを安全ラッパー経由に変更します
     const snapshot = {
       coupons: coupons,
       restaurantData: restaurants,
       gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
     };
 
-    // 優先: stateSync があれば requestSave + flush
-    if (window.stateSync && typeof window.stateSync.requestSave === "function") {
-      try { window.stateSync.requestSave(snapshot); } catch(e) {}
-      if (typeof window.stateSync.flushNow === "function") {
-        return window.stateSync.flushNow().then(res => ({ ok: true, applied: found, flushed: res })).catch(err => {
-          console.warn("stateSync.flushNow failed:", err);
-          return { ok: true, applied: found, error: String(err) };
-        });
-      }
-      return Promise.resolve({ ok: true, applied: found, queued: true });
-    }
-
-    // フォールバックは既存コード（saveGachaStateToServer / direct POST）
-    if (typeof saveGachaStateToServer === "function") {
-      return saveGachaStateToServer(snapshot, { immediate: true }).then(res => ({ ok: true, applied: found, saved: res })).catch(err => {
-        console.warn("saveGachaStateToServer immediate failed:", err);
+    // 変更前: 直接 window.stateSync を参照していたため、ダミー stateSync があると no-op になっていた
+    // 変更後: requestSaveSnapshotSafe を経由して必ずフォールバックまで到達できるようにする
+    return requestSaveSnapshotSafe(snapshot, true)
+      .then(res => ({ ok: true, applied: found, savedOrQueued: res }))
+      .catch(err => {
+        console.warn("markCouponUsedAndSync: requestSaveSnapshotSafe failed:", err);
         return { ok: true, applied: found, error: String(err) };
       });
-    }
-
-    // 最終フォールバック: 直接 POST
-    try {
-      const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || null);
-      if (!url) return Promise.resolve({ ok: true, applied: found, skippedSave: true });
-      const payload = { eventType: "saveState", userId: userId, state: snapshot };
-      return fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-        body: "data=" + encodeURIComponent(JSON.stringify(payload))
-      }).then(r => r.text()).then(t => { try { return { ok: true, applied: found, result: JSON.parse(t) }; } catch(e) { return { ok: true, applied: found, raw: t }; } });
-    } catch (err) {
-      console.warn("direct POST failed:", err);
-      return Promise.resolve({ ok: true, applied: found, error: String(err) });
-    }
-
   } catch (err) {
     console.warn("markCouponUsedAndSync failed:", err);
     return Promise.reject(err);

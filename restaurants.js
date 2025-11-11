@@ -83,8 +83,25 @@ function renderRestaurants() {
   });
   if (changed) {
     localStorage.setItem(restaurantsKey, JSON.stringify(restaurants));
-    // 必要ならサーバに snapshot 保存を投げる（任意）
-    // requestSaveSnapshotSafe({ coupons: coupons, restaurantData: restaurants, gachaState: ... }, true);
+    // 追加: 差分があればサーバにも保存（即時）
+    try {
+      const snapshot = {
+        coupons: coupons,
+        restaurantData: restaurants,
+        gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
+      };
+      if (typeof requestSaveSnapshotSafe === "function") {
+        requestSaveSnapshotSafe(snapshot, true).then(r => {
+          console.info("restaurants.js: saved snapshot after recompute:", r);
+        }).catch(e => {
+          console.warn("restaurants.js: save snapshot failed:", e);
+        });
+      } else {
+        console.warn("restaurants.js: requestSaveSnapshotSafe not available, skipping server save");
+      }
+    } catch (e) {
+      console.warn("restaurants.js: error while trying to save snapshot", e);
+    }
   }
 
   // ここから既存のレンダリング処理（カード生成など）を続行
