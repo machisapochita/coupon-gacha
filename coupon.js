@@ -1,6 +1,11 @@
 const userId = localStorage.getItem("userId");
 const restaurantData = JSON.parse(localStorage.getItem(`restaurantData_${userId}`)) || [];
 
+// --- ここを追加: ページ単位で window.LOG_URL を設定できるようにする ---
+// 優先順: window.LOG_URL (HTML側で設定) -> 埋め込みフォールバック
+const LOG_URL = (typeof window !== "undefined" && window.LOG_URL) ? window.LOG_URL : "https://script.google.com/macros/s/AKfycbxTsZVOZfn5xoySkypMrYt_6pd0xtNcTtaxOxRPvjZXqXttv1wd5U0vVSUZg5_W6KmT/exec";
+// -----------------------------------------------------------------------
+
 function renderCoupons() {
   const container = document.getElementById("coupon-container");
   container.innerHTML = "";
@@ -210,8 +215,6 @@ function openModal(store) {
   modal.classList.remove("hidden");
 }
 
-// 送信先を一箇所で管理（ここに Apps Script の最新デプロイ URL を貼る）
-const LOG_URL = "https://script.google.com/macros/s/AKfycbxTsZVOZfn5xoySkypMrYt_6pd0xtNcTtaxOxRPvjZXqXttv1wd5U0vVSUZg5_W6KmT/exec";
 
 // sendVideoLog と sendUsageLog を統一・詳細ログ出力
 function postLog(payload) {
@@ -460,14 +463,39 @@ document.addEventListener("DOMContentLoaded", () => {
 
       markCouponUsedAndSync(storeId)
         .then(() => {
-          return sendUsageLog({ userId, storeId, storeName, prizeType, salonId }).catch(e => { console.warn("sendUsageLog after mark failed:", e); });
+          // usage ログはそのあと送る（失敗しても UI は続行）
+          return sendUsageLog({ userId, storeId, storeName, prizeType, salonId }).catch(e => {
+            console.warn("sendUsageLog after mark failed:", e);
+            return null;
+          });
         })
         .then(() => {
+          // モーダルを閉じてキーをクリア
           const couponModal = document.getElementById("coupon-modal");
           if (couponModal) couponModal.classList.add("hidden");
           const keyInput = document.getElementById("key-input");
           if (keyInput) keyInput.value = "";
-          renderCoupons();
+
+          // まず画面を更新（即時反映）
+          try { renderCoupons(); } catch (e) { /* ignore */ }
+
+          // restaurants の一覧が同タブで開いていれば再描画する（存在する場合のみ）
+          try {
+            if (typeof window.renderRestaurants === "function") {
+              window.renderRestaurants();
+            }
+          } catch (e) {
+            console.warn("renderRestaurants call failed:", e);
+          }
+
+          // 見た目のフィードバックを表示（Thank You）
+          try {
+            if (typeof showThankYou === "function") {
+              showThankYou(() => {
+                try { renderCoupons(); } catch(e) {}
+              });
+            }
+          } catch (e) { /* ignore */ }
         })
         .catch(err => {
           console.warn("confirm click: sync failed, applying local fallback:", err);
@@ -475,7 +503,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (couponModal) couponModal.classList.add("hidden");
           const keyInput = document.getElementById("key-input");
           if (keyInput) keyInput.value = "";
-          renderCoupons();
+          try { renderCoupons(); } catch(e) {}
         });
     });
   } else {
@@ -526,19 +554,72 @@ function markCouponUsedAndSync(couponIdentifier) {
       }
     }
 
-    // ローカル保存 & UI 更新
+    // ローカル保存 & UI 更新（同タブ内）
     localStorage.setItem(couponsKey, JSON.stringify(coupons));
     localStorage.setItem(restaurantsKey, JSON.stringify(restaurants));
     try { renderCoupons(); } catch(e){}
 
-    // 一回だけ集約して送る
+    // 同タブに restaurants の描画関数があるなら更新
+    try { if (typeof window.renderRestaurants === "function") window.renderRestaurants(); } catch(e){}
+
+    // サーバへ即時送信（優先的に stateSync を flush する）
     const snapshot = {
       coupons: coupons,
       restaurantData: restaurants,
       gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
     };
-    stateSync.requestSave(snapshot);
-    return Promise.resolve({ ok: true, applied: found });
+
+    // 優先: stateSync.flushNow() が使えるならそれを呼んで Promise を返す
+    try {
+      if (window.stateSync && typeof window.stateSync.requestSave === "function") {
+        // queue latest snapshot then flush immediately
+        try { window.stateSync.requestSave(snapshot); } catch(e) {}
+        if (typeof window.stateSync.flushNow === "function") {
+          return window.stateSync.flushNow().then(res => ({ ok: true, applied: found, flushed: res })).catch(err => {
+            console.warn("stateSync.flushNow failed:", err);
+            return { ok: true, applied: found, error: String(err) };
+          });
+        } else {
+          // flushNow not available, resolve queued
+          return Promise.resolve({ ok: true, applied: found, queued: true });
+        }
+      }
+
+      // フォールバック: saveGachaStateToServer があれば immediate で呼ぶ
+      if (typeof saveGachaStateToServer === "function") {
+        try {
+          return saveGachaStateToServer(snapshot, { immediate: true }).then(res => ({ ok: true, applied: found, saved: res })).catch(err => {
+            console.warn("saveGachaStateToServer immediate failed:", err);
+            return { ok: true, applied: found, error: String(err) };
+          });
+        } catch (e) {
+          console.warn("saveGachaStateToServer threw:", e);
+        }
+      }
+
+      // 最後のフォールバック: 直接 POST（LOG_URL を使う）
+      try {
+        const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbxTsZVOZfn5xoySkypMrYt_6pd0xtNcTtaxOxRPvjZXqXttv1wd5U0vVSUZg5_W6KmT/exec";
+        const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
+        if (!url) return Promise.resolve({ ok: true, applied: found, skippedSave: true });
+        const payload = { eventType: "saveState", userId: userId, state: snapshot };
+        return fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+          body: "data=" + encodeURIComponent(JSON.stringify(payload))
+        }).then(r => r.text()).then(t => {
+          try { return { ok: true, applied: found, result: JSON.parse(t) }; }
+          catch (e) { return { ok: true, applied: found, raw: t }; }
+        }).catch(err => ({ ok: true, applied: found, error: String(err) }));
+      } catch (err) {
+        console.warn("direct POST failed:", err);
+        return Promise.resolve({ ok: true, applied: found, error: String(err) });
+      }
+    } catch (err) {
+      console.warn("markCouponUsedAndSync save path failed:", err);
+      return Promise.resolve({ ok: true, applied: found, error: String(err) });
+    }
+
   } catch (err) {
     console.warn("markCouponUsedAndSync failed:", err);
     return Promise.reject(err);

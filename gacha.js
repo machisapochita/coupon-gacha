@@ -1242,8 +1242,7 @@ function postToLog(payload) {
 }
 
 function sendVideoLog(payload) {
-  // payload: { userId, storeId, storeName, prizeType, salonId, ... }
-  const p = Object.assign({ eventType: "viewed", ts: Date.now() }, payload);
+  const p = Object.assign({ eventType: "viewed", eventSource: "gacha", ts: Date.now() }, payload);
   return postToLog(p);
 }
 
