@@ -3,6 +3,7 @@ window.__applyingServerState = window.__applyingServerState || false;
 
 // 既存の requestSaveSnapshotSafe の冒頭に追加（またはその wrapper を更新）
 function requestSaveSnapshotSafe(snapshot, immediate) {
+  console.log("📦 Saving snapshot:", snapshot);
   // もしサーバ適用中なら保存をスキップ（resolved Promise を返す）
   if (window.__applyingServerState) {
     console.log('requestSaveSnapshotSafe: skipping save because applyingServerState is true');
@@ -631,6 +632,18 @@ function addCoupon(store, prizeType) {
   coupons.push(newCoupon);
   localStorage.setItem(key, JSON.stringify(coupons));
 
+  // ここに追加（ローカル保存の直後に snapshot を確実に送る）
+  try {
+    const uid = localStorage.getItem('userId');
+    if (typeof saveStateSnapshotNow === 'function') {
+      saveStateSnapshotNow(uid).catch(e => console.warn('addCoupon: saveStateSnapshotNow failed', e));
+    } else {
+      console.warn('addCoupon: saveStateSnapshotNow not available');
+    }
+  } catch (e) {
+    console.warn('addCoupon: snapshot trigger failed', e);
+  }
+
   // UI の合計金額を更新（クーポン追加直後に反映）
   try {
     const totalAmount = coupons.reduce((sum, c) => sum + (c.discount || 0), 0);
@@ -685,7 +698,19 @@ function drawPrizeType() {
     if (state.remaining > 0) {
       state.remaining--;
       localStorage.setItem(gachaKey, JSON.stringify(state));
-      // サーバに保存
+
+      // ここに追加：last-one に遷移する分岐でも snapshot を確実に保存
+      try {
+        if (typeof saveStateSnapshotNow === 'function') {
+          saveStateSnapshotNow(userId).catch(e => console.warn('drawPrizeType (last-one): saveStateSnapshotNow failed', e));
+        } else {
+          console.warn('drawPrizeType (last-one): saveStateSnapshotNow not available');
+        }
+      } catch (e) {
+        console.warn('drawPrizeType (last-one): snapshot trigger failed', e);
+      }
+
+      // サーバに保存（既存の呼び出しがあれば残しても安全）
       try {
         const snapshot = {
           coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
@@ -706,6 +731,17 @@ function drawPrizeType() {
   state.prizePool = pool;
   state.remaining = (state.remaining || 10) - 1;
   localStorage.setItem(gachaKey, JSON.stringify(state));
+
+  // ここに追加：通常抽選でも snapshot を送る
+  try {
+    if (typeof saveStateSnapshotNow === 'function') {
+      saveStateSnapshotNow(userId).catch(e => console.warn('drawPrizeType: saveStateSnapshotNow failed', e));
+    } else {
+      console.warn('drawPrizeType: saveStateSnapshotNow not available');
+    }
+  } catch (e) {
+    console.warn('drawPrizeType: snapshot trigger failed', e);
+  }
 
   // サーバに保存（重要）
   try {
@@ -1342,5 +1378,63 @@ function applyServerStateToLocal(payload, userId) {
   }
   return true;
 }
+
+// --- START: snapshot helper + guaranteed save calls (追加) ---
+
+// buildSnapshot をグローバルに公開して簡単に手動送信できるようにする
+function buildSnapshotForUser(userId) {
+  userId = userId || localStorage.getItem('userId');
+  if (!userId) return { coupons: [], restaurantData: [], gachaState: {} };
+
+  // try per-user keys first, then legacy keys as fallback
+  const couponsKeys = [
+    `myCoupons_${userId}`,
+    'myCoupons',
+  ];
+  const restaurantsKeys = [
+    `restaurantData_${userId}`,
+    'restaurantData'
+  ];
+  const gachaKeys = [
+    `gachaState_${userId}`,
+    'gachaState'
+  ];
+
+  let coupons = [];
+  for (const k of couponsKeys) {
+    try { const v = localStorage.getItem(k); if (v) { coupons = JSON.parse(v); break; } } catch(e){}
+  }
+
+  let restaurantData = [];
+  for (const k of restaurantsKeys) {
+    try { const v = localStorage.getItem(k); if (v) { restaurantData = JSON.parse(v); break; } } catch(e){}
+  }
+
+  let gachaState = {};
+  for (const k of gachaKeys) {
+    try { const v = localStorage.getItem(k); if (v) { gachaState = JSON.parse(v); break; } } catch(e){}
+  }
+
+  return { coupons, restaurantData, gachaState };
+}
+window.buildSnapshotForUser = buildSnapshotForUser; // for manual testing
+
+// wrapper to request save and log what we send (helps debugging)
+function saveStateSnapshotNow(userId) {
+  const snapshot = buildSnapshotForUser(userId);
+  try { console.log('⤴️ saveStateSnapshotNow: snapshot ->', snapshot); } catch(e){}
+  // requestSaveSnapshotSafe が既に存在していれば呼ぶ（coupon.js で定義済み）
+  if (typeof requestSaveSnapshotSafe === 'function') {
+    return requestSaveSnapshotSafe({ coupons: snapshot.coupons, restaurantData: snapshot.restaurantData, gachaState: snapshot.gachaState }, true)
+      .then(res => { console.log('saveStateSnapshotNow: saved ->', res); return res; })
+      .catch(err => { console.warn('saveStateSnapshotNow: save failed ->', err); throw err; });
+  } else {
+    console.warn('saveStateSnapshotNow: requestSaveSnapshotSafe not found');
+    return Promise.resolve({ skipped: true, reason: 'no-save-wrapper' });
+  }
+}
+window.saveStateSnapshotNow = saveStateSnapshotNow;
+
+// --- END: snapshot helper + guaranteed save calls ---
 
 
