@@ -61,125 +61,163 @@ function playFullScreenVideo(videoUrl) {
     
 // 店舗カードの描画
 function renderRestaurants() {
-  const userId = localStorage.getItem("userId");
-  const restaurantsKey = `restaurantData_${userId}`;
-  const couponsKey = `myCoupons_${userId}`;
+  try {
+    const userId = localStorage.getItem("userId");
+    const restaurantsKey = `restaurantData_${userId}`;
+    const couponsKey = `myCoupons_${userId}`;
 
-  const restaurants = JSON.parse(localStorage.getItem(restaurantsKey) || "[]");
-  const coupons = JSON.parse(localStorage.getItem(couponsKey) || "[]");
+    const restaurants = JSON.parse(localStorage.getItem(restaurantsKey) || "[]");
+    const coupons = JSON.parse(localStorage.getItem(couponsKey) || "[]");
 
-  // マッチング用ヘルパー（複数キーに対応）
-  function isCouponUsedForStore(store) {
-    if (!store) return false;
-    const storeIds = [store.storeId, store.id, store.baseId].filter(Boolean);
-    if (storeIds.length === 0) return false;
-    return coupons.some(c => {
-      const cIds = [c.storeId, c.id, c.baseId].filter(Boolean);
-      return cIds.some(cid => storeIds.includes(cid));
+    console.info("renderRestaurants start", {
+      userId,
+      restaurantsKey,
+      restaurantsLength: Array.isArray(restaurants) ? restaurants.length : typeof restaurants,
+      couponsLength: Array.isArray(coupons) ? coupons.length : typeof coupons
     });
-  }
 
-  // restaurants 配列を走査して couponUsed を再計算（差分があればローカル保存）
-  let changed = false;
-  restaurants.forEach(r => {
-    const used = isCouponUsedForStore(r);
-    if (r.couponUsed !== used) {
-      r.couponUsed = used;
-      changed = true;
-    }
-  });
-  if (changed) {
-    localStorage.setItem(restaurantsKey, JSON.stringify(restaurants));
-    try {
-      const snapshot = {
-        coupons: coupons,
-        restaurantData: restaurants,
-        gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
-      };
-      if (typeof window.requestSaveSnapshotSafe === "function") {
-        window.requestSaveSnapshotSafe(snapshot, true).then(r => {
-          console.info("restaurants.js: saved snapshot after recompute:", r);
-        }).catch(e => {
-          console.warn("restaurants.js: save snapshot failed:", e);
+    // --- group by baseId （baseId がなければ storeId を代用） ---
+    const groups = {};
+    restaurants.forEach(s => {
+      const key = s.baseId || s.storeId || s.id || "__unknown__";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(s);
+    });
+
+    // Build array of representative stores (one per baseId)
+    const storesToRender = Object.keys(groups).map(key => {
+      const group = groups[key];
+      // 優先： unlocked なエントリ、なければ最初のエントリ
+      const rep = group.find(x => x.unlocked) || group[0];
+      // attach original group for coupon-checking if needed
+      rep._variants = group;
+      rep._baseKey = key;
+      return rep;
+    });
+
+    console.info("renderRestaurants: base-store count:", storesToRender.length);
+
+    // helper: check whether any variant in the group has coupon in coupons[]
+    function isCouponUsedForGroup(groupVariants) {
+      if (!Array.isArray(groupVariants) || groupVariants.length === 0) return false;
+      return coupons.some(c => {
+        const cIds = [c.baseId, c.storeId, c.id].filter(Boolean);
+        if (cIds.length === 0) return false;
+        return groupVariants.some(variant => {
+          const vIds = [variant.baseId, variant.storeId, variant.id].filter(Boolean);
+          return cIds.some(cid => vIds.includes(cid));
         });
-      } else if (typeof saveGachaStateToServer === "function") {
-        saveGachaStateToServer(snapshot, { immediate: true }).then(r => {
-          console.info("restaurants.js: saved snapshot (fallback) after recompute:", r);
-        }).catch(e => console.warn("restaurants.js: fallback save failed:", e));
-      } else {
-        // 最終フォールバック: 直接 POST
-        const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || null);
-        if (url && userId) {
-          fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-            body: "data=" + encodeURIComponent(JSON.stringify({ eventType: "saveState", userId, state: snapshot }))
-          }).then(r => r.text()).then(t => console.info("restaurants.js: direct POST result:", t)).catch(e => console.warn("restaurants.js: direct POST failed:", e));
-        } else {
-          console.warn("restaurants.js: requestSaveSnapshotSafe not available, skipping server save");
-        }
-      }
-    } catch (e) {
-      console.warn("restaurants.js: error while trying to save snapshot", e);
+      });
     }
-  }
 
-  // ここから既存のレンダリング処理（カード生成など）を続行
-  const container = document.getElementById("restaurants-container");
-  if (!container) return;
-  container.innerHTML = "";
-  restaurants.forEach(store => {
-    // 例: クーポン表示の分岐は store.couponUsed を使う
-    const card = document.createElement("div");
-    card.className = "restaurant-card";
-    card.dataset.storeId = store.storeId;
+    // recompute couponUsed for each representative
+    let changed = false;
+    storesToRender.forEach(rep => {
+      const used = isCouponUsedForGroup(rep._variants);
+      if (rep.couponUsed !== used) {
+        rep.couponUsed = used;
+        changed = true;
+      }
+    });
 
-    if (store.unlocked) {
-      card.classList.add("unlocked");
-      card.innerHTML = `
-        <h3 class="store-name">${store.name}</h3>
-        <div class="card-content">
-          <img src="${(store.images && store.images[0]) ? store.images[0] : 'images/sample1.jpg'}" alt="店舗写真" class="store-image" />
-          <div class="store-details">
-            <p class="store-genre">${store.genre || '－'}</p>
-            <p class="store-town">${store.town || '－'}</p>
-            <p class="coupon-status ${store.couponUsed ? "used" : "unused"}">
-              ${store.couponUsed ? "クーポン：済" : "クーポン：未"}
-            </p>
-          </div>
-        </div>
-      `;
+    // 保存は per-user の restaurantData に保存しておく（完全上書きで問題なければ）
+    if (changed) {
+      try {
+        // 注意: restaurantsKey は元の配列（storeId 単位）を期待する箇所があるため、
+        // ここでは元配列を書き換えず、代表配列を別キーに保存する選択肢もあります。
+        // とりあえず元配列の各要素に couponUsed を反映して保存しておく。
+        const updated = restaurants.map(s => {
+          // 各 variant の couponUsed は、その variant の base group の rep の値に合わせる
+          const baseKey = s.baseId || s.storeId || s.id || "__unknown__";
+          const rep = storesToRender.find(r => r._baseKey === baseKey);
+          if (rep) s.couponUsed = !!rep.couponUsed;
+          return s;
+        });
+        localStorage.setItem(restaurantsKey, JSON.stringify(updated));
+        console.info("renderRestaurants: updated restaurants saved to", restaurantsKey);
+      } catch (e) {
+        console.warn("renderRestaurants: failed to persist updated restaurants:", e);
+      }
+    }
+
+    // --- コンテナを HTML 側の ID/CSS に合わせて柔軟に取得（優先は #restaurant-container） ---
+    let container = document.getElementById("restaurant-container")
+      || document.getElementById("restaurants-container")
+      || document.querySelector("#restaurantsContainer")
+      || document.querySelector(".restaurants-container")
+      || document.querySelector(".restaurant-list")
+      || document.querySelector(".restaurants")
+      || document.querySelector("main")
+      || document.body;
+
+    console.info("renderRestaurants: resolved container:", container && (container.id || container.className || container.tagName));
+
+    // もし HTML に例示用カードが静的に入っている container を使っているなら innerHTML をクリアして置き換える
+    if (container) {
+      container.innerHTML = "";
     } else {
-      card.classList.add("locked");
-      card.innerHTML = `
-        <h3 class="store-name">ガチャで開放</h3>
-        <div class="card-content">
-          <img src="images/secret_image.png" alt="非公開画像" class="store-image locked-image" />
-          <div class="store-details">
-            <p class="store-genre">？？？</p>
-            <p class="store-town">？？？</p>
-            <p class="coupon-status unused">クーポン：未</p>
+      console.warn("renderRestaurants: no container found - aborting render");
+      return;
+    }
+
+    // 実際のレンダリング：baseId 単位の代表配列を描画（期待通り 10 件）
+    let appended = 0;
+    storesToRender.forEach((store, idx) => {
+      try {
+        const card = document.createElement("div");
+        card.className = "restaurant-card";
+        if (store.unlocked) card.classList.add("unlocked"); else card.classList.add("locked");
+        // store.storeId は代表の storeId（表示や modal 用に保持）
+        card.dataset.storeId = store.storeId || "";
+
+        card.innerHTML = store.unlocked ? `
+          <h3 class="store-name">${store.name || "店舗"}</h3>
+          <div class="card-content">
+            <img src="${(store.images && store.images[0]) ? store.images[0] : 'images/sample1.jpg'}" alt="店舗写真" class="store-image" />
+            <div class="store-details">
+              <p class="store-genre">${store.genre || '－'}</p>
+              <p class="store-town">${store.town || '－'}</p>
+              <p class="coupon-status ${store.couponUsed ? "used" : "unused"}">
+                ${store.couponUsed ? "クーポン：済" : "クーポン：未"}
+              </p>
+            </div>
+          </div>
+        ` : `
+          <h3 class="store-name">ガチャで開放</h3>
+          <div class="card-content">
+            <img src="images/secret_image.png" alt="非公開画像" class="store-image locked-image" />
+            <div class="store-details">
+              <p class="store-genre">？？？</p>
+              <p class="store-town">？？？</p>
+              <p class="coupon-status unused">クーポン：未</p>
+            </div>
           </div>
           <div class="lock-overlay">
             <img src="images/rock_chain.png" alt="ロック中" class="lock-image" />
           </div>
-        </div>
-      `;
-    }
+        `;
 
-    // ✅ どちらの状態でもクリック可能にしてモーダル表示
-    card.addEventListener("click", () => {
-      const storeId = card.dataset.storeId;
-      const targetStore = restaurants.find(s => s.storeId === storeId);
-      if (targetStore) {
-        openModal(targetStore);
-      } else {
-        console.warn("店舗データが見つかりません:", storeId);
+        card.addEventListener("click", () => {
+          const storeId = card.dataset.storeId;
+          // find the representative store (or first matching variant)
+          const target = storesToRender.find(s => s.storeId === storeId) || storesToRender[idx];
+          if (target) openModal(target);
+        });
+
+        container.appendChild(card);
+        appended++;
+        if (appended <= 5) {
+          console.info("renderRestaurants: appended idx", idx, "baseKey", store._baseKey, "storeId", store.storeId, "unlocked", !!store.unlocked, "couponUsed", !!store.couponUsed);
+        }
+      } catch (e) {
+        console.error("renderRestaurants: failed to render base idx", idx, store, e);
       }
     });
 
-    container.appendChild(card);
-  });
+    console.info("renderRestaurants completed, appended:", appended);
+  } catch (err) {
+    console.error("renderRestaurants: unexpected error", err);
+  }
 }
 
 // ポップアップ表示処理
@@ -263,18 +301,45 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     if (userId && typeof window.loadGachaStateFromServer === "function") {
       const res = await window.loadGachaStateFromServer(userId);
-      if (res && res.status === "OK" && res.found && res.state) {
-        // applyServerStateToLocal は gacha.js 側で定義されている前提
+
+      // 修正点: status を大小区別せず判定、または status が微妙でも found/state があれば適用する
+      const statusOk = res && res.status && String(res.status).toLowerCase() === "ok";
+      if (res && (statusOk || (res.found && res.state))) {
         try {
-          window.applyServerStateToLocal(res.state ? { found: true, state: res.state } : res, userId);
-          console.info("restaurants.js: server state applied for", userId);
+          // applyServerStateToLocal があれば任せる
+          if (typeof window.applyServerStateToLocal === "function") {
+            window.applyServerStateToLocal(res.state ? { found: true, state: res.state } : res, userId);
+            console.info("restaurants.js: server state applied for", userId);
+
+            // 追記: applyServerStateToLocal が内部で myCoupons_<userId> を書かない場合に備え、
+            // サーバから coupons が来ていれば明示的に localStorage に保存しておく
+            try {
+              if (res && res.state && Array.isArray(res.state.coupons) && res.state.coupons.length > 0) {
+                const couponsKey = `myCoupons_${userId}`;
+                localStorage.setItem(couponsKey, JSON.stringify(res.state.coupons));
+                console.info("restaurants.js: applied coupons to localStorage:", couponsKey);
+              } else {
+                console.info("restaurants.js: server state had no coupons or empty coupons array");
+              }
+            } catch (e) {
+              console.warn("restaurants.js: failed to write coupons into localStorage:", e);
+            }
+          } else {
+            // 互換性が合わない場合に備えて直接保存も行っておく
+            if (res.state) {
+              if (res.state.restaurantData) localStorage.setItem(`restaurantData_${userId}`, JSON.stringify(res.state.restaurantData));
+              if (res.state.coupons) localStorage.setItem(`myCoupons_${userId}`, JSON.stringify(res.state.coupons));
+              if (res.state.gachaState) localStorage.setItem(`gachaState_${userId}`, JSON.stringify(res.state.gachaState));
+              console.info("restaurants.js: fallback applied server state");
+            }
+          }
         } catch (e) {
-          // 互換性が合わない場合に備えて直接保存も行っておく
+          // 万一 applyServerStateToLocal が投げたら fallback で local に書く
           if (res.state) {
             if (res.state.restaurantData) localStorage.setItem(`restaurantData_${userId}`, JSON.stringify(res.state.restaurantData));
             if (res.state.coupons) localStorage.setItem(`myCoupons_${userId}`, JSON.stringify(res.state.coupons));
             if (res.state.gachaState) localStorage.setItem(`gachaState_${userId}`, JSON.stringify(res.state.gachaState));
-            console.info("restaurants.js: fallback applied server state");
+            console.info("restaurants.js: fallback applied server state after exception");
           }
         }
       } else {
