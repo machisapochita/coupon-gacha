@@ -55,41 +55,44 @@ function playFullScreenVideo(videoUrl) {
 // 店舗カードの描画
 function renderRestaurants() {
   const userId = localStorage.getItem("userId");
-  const key = `restaurantData_${userId}`;
-  const container = document.getElementById("restaurant-container");
-  if (!container) return;
-  container.innerHTML = "";
+  const restaurantsKey = `restaurantData_${userId}`;
+  const couponsKey = `myCoupons_${userId}`;
 
-  const data = JSON.parse(localStorage.getItem(key)) || [];
+  const restaurants = JSON.parse(localStorage.getItem(restaurantsKey) || "[]");
+  const coupons = JSON.parse(localStorage.getItem(couponsKey) || "[]");
 
-  // ローカルのクーポン情報を使って couponUsed を補完
-  const myCoupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]");
-  const usedStoreIds = new Set(myCoupons.filter(c => c.used).map(c => c.storeId));
-  const ownedStoreIds = new Set(myCoupons.map(c => c.storeId));
-
-  // baseId ごとに最初の1件だけ抽出して一覧表示用にする
-  const uniqueStores = [];
-  const seenBaseIds = new Set();
-
-  for (const store of data) {
-    const baseId = store.baseId || (store.storeId && store.storeId.split("-")[0]);
-    if (!seenBaseIds.has(baseId)) {
-      seenBaseIds.add(baseId);
-
-      // マージ: myCoupons による状態上書き（ローカルのクーポン情報が優先）
-      const isUsed = usedStoreIds.has(store.storeId) || !!store.couponUsed;
-      const isOwned = ownedStoreIds.has(store.storeId);
-
-      uniqueStores.push(Object.assign({}, store, {
-        couponUsed: !!isUsed,
-        unlocked: !!store.unlocked || !!isOwned // クーポン所有者はアンロック扱い
-      }));
-    }
+  // マッチング用ヘルパー（複数キーに対応）
+  function isCouponUsedForStore(store) {
+    if (!store) return false;
+    const storeIds = [store.storeId, store.id, store.baseId].filter(Boolean);
+    if (storeIds.length === 0) return false;
+    return coupons.some(c => {
+      const cIds = [c.storeId, c.id, c.baseId].filter(Boolean);
+      return cIds.some(cid => storeIds.includes(cid));
+    });
   }
 
-  uniqueStores.forEach(store => {
-    console.log("カード生成中:", store.storeId);
+  // restaurants 配列を走査して couponUsed を再計算（差分があればローカル保存）
+  let changed = false;
+  restaurants.forEach(r => {
+    const used = isCouponUsedForStore(r);
+    if (r.couponUsed !== used) {
+      r.couponUsed = used;
+      changed = true;
+    }
+  });
+  if (changed) {
+    localStorage.setItem(restaurantsKey, JSON.stringify(restaurants));
+    // 必要ならサーバに snapshot 保存を投げる（任意）
+    // requestSaveSnapshotSafe({ coupons: coupons, restaurantData: restaurants, gachaState: ... }, true);
+  }
 
+  // ここから既存のレンダリング処理（カード生成など）を続行
+  const container = document.getElementById("restaurants-container");
+  if (!container) return;
+  container.innerHTML = "";
+  restaurants.forEach(store => {
+    // 例: クーポン表示の分岐は store.couponUsed を使う
     const card = document.createElement("div");
     card.className = "restaurant-card";
     card.dataset.storeId = store.storeId;
@@ -130,7 +133,7 @@ function renderRestaurants() {
     // ✅ どちらの状態でもクリック可能にしてモーダル表示
     card.addEventListener("click", () => {
       const storeId = card.dataset.storeId;
-      const targetStore = data.find(s => s.storeId === storeId);
+      const targetStore = restaurants.find(s => s.storeId === storeId);
       if (targetStore) {
         openModal(targetStore);
       } else {
