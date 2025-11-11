@@ -57,19 +57,33 @@ function renderRestaurants() {
   const userId = localStorage.getItem("userId");
   const key = `restaurantData_${userId}`;
   const container = document.getElementById("restaurant-container");
+  if (!container) return;
   container.innerHTML = "";
 
   const data = JSON.parse(localStorage.getItem(key)) || [];
 
-  // 🎯 baseIdごとに最初の1件だけ抽出（例：ramen001）
+  // ローカルのクーポン情報を使って couponUsed を補完
+  const myCoupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]");
+  const usedStoreIds = new Set(myCoupons.filter(c => c.used).map(c => c.storeId));
+  const ownedStoreIds = new Set(myCoupons.map(c => c.storeId));
+
+  // baseId ごとに最初の1件だけ抽出して一覧表示用にする
   const uniqueStores = [];
   const seenBaseIds = new Set();
 
   for (const store of data) {
-    const baseId = store.baseId || store.storeId.split("-")[0];
+    const baseId = store.baseId || (store.storeId && store.storeId.split("-")[0]);
     if (!seenBaseIds.has(baseId)) {
       seenBaseIds.add(baseId);
-      uniqueStores.push(store);
+
+      // マージ: myCoupons による状態上書き（ローカルのクーポン情報が優先）
+      const isUsed = usedStoreIds.has(store.storeId) || !!store.couponUsed;
+      const isOwned = ownedStoreIds.has(store.storeId);
+
+      uniqueStores.push(Object.assign({}, store, {
+        couponUsed: !!isUsed,
+        unlocked: !!store.unlocked || !!isOwned // クーポン所有者はアンロック扱い
+      }));
     }
   }
 
@@ -81,15 +95,14 @@ function renderRestaurants() {
     card.dataset.storeId = store.storeId;
 
     if (store.unlocked) {
-      // ✅ アンロックされた店舗 → 情報表示
       card.classList.add("unlocked");
       card.innerHTML = `
         <h3 class="store-name">${store.name}</h3>
         <div class="card-content">
-          <img src="${store.images[0]}" alt="店舗写真" class="store-image" />
+          <img src="${(store.images && store.images[0]) ? store.images[0] : 'images/sample1.jpg'}" alt="店舗写真" class="store-image" />
           <div class="store-details">
-            <p class="store-genre">${store.genre}</p>
-            <p class="store-town">${store.town}</p>
+            <p class="store-genre">${store.genre || '－'}</p>
+            <p class="store-town">${store.town || '－'}</p>
             <p class="coupon-status ${store.couponUsed ? "used" : "unused"}">
               ${store.couponUsed ? "クーポン：済" : "クーポン：未"}
             </p>
@@ -97,7 +110,6 @@ function renderRestaurants() {
         </div>
       `;
     } else {
-      // 🔒 ロックされた店舗 → 非公開表示
       card.classList.add("locked");
       card.innerHTML = `
         <h3 class="store-name">ガチャで開放</h3>
