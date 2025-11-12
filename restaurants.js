@@ -506,4 +506,20 @@ if (parsedServerState) {
   // fallback: nothing to apply
 }
 
+function computeCouponStatus(store) {
+  // 優先順位：nested coupon.used OR top-level couponUsed => used
+  const nestedUsed = store.coupon && (store.coupon.used === true);
+  const topUsed = (typeof store.couponUsed !== 'undefined') && store.couponUsed === true;
+  if (nestedUsed || topUsed) return 'used';
+  if (store.unlocked) return 'unlocked';
+  return 'locked';
+}
+
+// renderRestaurants 内、カード描画前に computeCouponStatus を呼んで表示を制御してください。
+// 例（概念）:
+// const status = computeCouponStatus(store);
+// if (status === 'used') { /* show used UI */ }
+// else if (status === 'unlocked') { /* show unlocked UI */ }
+// else { /* show locked UI */ }
+
 

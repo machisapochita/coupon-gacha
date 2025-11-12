@@ -946,21 +946,29 @@ function updateRestaurantData(updatedStore) {
     couponUsed: updatedStore.couponUsed,
     prizeType: updatedStore.prizeType
   });
+
   const userId = localStorage.getItem("userId");
   const key = `restaurantData_${userId}`;
-  const currentData = JSON.parse(localStorage.getItem(key)) || [];
+  const currentData = JSON.parse(localStorage.getItem(key) || "[]");
 
   const newData = currentData.map(store => {
     if (store.storeId === updatedStore.storeId) {
-      return { ...store, ...updatedStore };
+      // マージ時のルール：
+      // - 常に unlocked を true にできる（アンロック操作）
+      // - couponUsed は明示的に更新された場合のみ上書き（クーポン使用時のみ）
+      const merged = { ...store };
+      if (typeof updatedStore.unlocked !== 'undefined') merged.unlocked = updatedStore.unlocked;
+      if (typeof updatedStore.couponUsed !== 'undefined') merged.couponUsed = updatedStore.couponUsed;
+      // preserve nested coupon unless explicitly provided
+      if (updatedStore.coupon) merged.coupon = updatedStore.coupon;
+      // preserve other fields if provided
+      if (updatedStore.prizeType) merged.prizeType = updatedStore.prizeType;
+      console.log('DBG: updateRestaurantData write', { storeId: merged.storeId, unlocked: merged.unlocked, couponUsed: merged.couponUsed });
+      return merged;
     }
 
-    // ✅ baseId一致かつ prizeTypeが normal → 表示対象なのでアンロック
-    if (
-      store.baseId === updatedStore.baseId &&
-      store.prizeType === "normal" &&
-      !store.unlocked
-    ) {
+    // baseId 一致で normal 賞はアンロック（従来の挙動）
+    if (store.baseId === updatedStore.baseId && store.prizeType === "normal" && !store.unlocked) {
       return { ...store, unlocked: true };
     }
 
@@ -968,6 +976,7 @@ function updateRestaurantData(updatedStore) {
   });
 
   localStorage.setItem(key, JSON.stringify(newData));
+  // UI 更新は外部で行う（必要ならここで明示的に呼ぶ）
 }
 
 /* --- 追加: 一元的な state 保存ユーティリティ (debounce + dedupe + flushPromise) --- */
