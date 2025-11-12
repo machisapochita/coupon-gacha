@@ -371,4 +371,39 @@ if (nextBtn) nextBtn.addEventListener("click", () => {
   });
 })();
 
+// --- 互換ラッパ: ensureRestaurantDataInitialized (既存の呼び出しと互換) ---
+function ensureRestaurantDataInitialized() {
+  try {
+    const userId = localStorage.getItem("userId");
+    const key = `restaurantData_${userId}`;
+    const raw = localStorage.getItem(key);
+    // raw が有効な配列としてパースできなければ初期化
+    let parsed = null;
+    try { parsed = JSON.parse(raw || "null"); } catch(e) { parsed = null; }
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      const seed = Array.isArray(window.initialRestaurantData) ? window.initialRestaurantData.slice() : [];
+      if (userId) {
+        localStorage.setItem(key, JSON.stringify(seed));
+        console.info("ensureRestaurantDataInitialized: initialized", key);
+      } else {
+        // userId 未設定時は legacy キーへ（念のため）
+        if (!localStorage.getItem("restaurantData")) {
+          localStorage.setItem("restaurantData", JSON.stringify(seed));
+          console.info("ensureRestaurantDataInitialized: initialized legacy restaurantData");
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("ensureRestaurantDataInitialized failed:", err);
+  }
+}
 
+// --- 同一タブ内で coupon を使ったときに即時反映する用のリスナ ---
+window.addEventListener('couponsChanged', () => {
+  try {
+    renderRestaurants();
+    console.info("couponsChanged -> renderRestaurants fired");
+  } catch (e) {
+    console.warn("couponsChanged handler failed:", e);
+  }
+});
