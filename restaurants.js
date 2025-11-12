@@ -61,6 +61,12 @@ function playFullScreenVideo(videoUrl) {
     
 // 店舗カードの描画
 function renderRestaurants() {
+  console.log('DBG: renderRestaurants called sample:', (restaurantArray||[]).slice(0,8).map(r=>({
+    storeId: r.storeId,
+    unlocked: r.unlocked,
+    couponUsed: (r.coupon && r.coupon.used),
+    couponPresent: !!r.coupon
+  })));
   try {
     const userId = localStorage.getItem("userId");
     const restaurantsKey = `restaurantData_${userId}`;

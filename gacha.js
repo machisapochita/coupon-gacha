@@ -940,6 +940,12 @@ function updateGachaButtonState() {
 }
 
 function updateRestaurantData(updatedStore) {
+  console.log('DBG: updateRestaurantData called with', updatedStore && {
+    storeId: updatedStore.storeId,
+    unlocked: updatedStore.unlocked,
+    couponUsed: updatedStore.couponUsed,
+    prizeType: updatedStore.prizeType
+  });
   const userId = localStorage.getItem("userId");
   const key = `restaurantData_${userId}`;
   const currentData = JSON.parse(localStorage.getItem(key)) || [];
