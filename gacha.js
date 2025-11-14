@@ -981,7 +981,7 @@ function updateRestaurantData(updatedStore) {
 
 /* --- 追加: 一元的な state 保存ユーティリティ (debounce + dedupe + flushPromise) --- */
 const stateSync = (function () {
-  const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycby1AJAK75hLO3VqlCdoweSVcEEH7HAWMVUbmljLMUl1WSFuVO6FevsEXfJJcqT4TMgD/exec";
+  const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbwk02U0POEPJfGWzmyn2TqzIpyX10-0WyfTKITw6gB8ceJa9vT_U1-EnEzg5vOAVjoU/exec";
   const getUrl = () => (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
 
   let timer = null;
