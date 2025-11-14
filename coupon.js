@@ -133,6 +133,12 @@ function renderCoupons() {
       modal.classList.remove("hidden");
     });
   });
+
+  // レンダリング完了後にローディングを非表示
+  const loadingOverlay = document.getElementById("loading-overlay");
+  if (loadingOverlay) {
+    loadingOverlay.classList.add("hidden");
+  }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
