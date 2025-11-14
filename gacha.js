@@ -564,17 +564,29 @@ function openCouponPopupWithLoop(prizeType, store) {
   const loopContainer = document.getElementById("background-loop-video");
   const prizeImage = document.getElementById("prize-image");
 
-  // prize-image は表示しない（仕様変更）
   if (prizeImage) prizeImage.classList.add("hidden");
 
-  // クーポン内容表示
+  // 旧「賞種：〜」行は非表示にしておく（HTMLが残っていても見えないように）
+  const typeEl = document.getElementById("coupon-type");
+  if (typeEl) typeEl.style.display = "none";
+
   document.getElementById("coupon-store-name").textContent = store.name;
   const coupon = store.coupon || { discount: 0, conditions: [], expiry: "" };
-  document.getElementById("coupon-discount").textContent = `${coupon.discount}円オフ`;
-  document.getElementById("coupon-conditions").innerHTML = (coupon.conditions || []).map(c => `<li>${c}</li>`).join("");
-  document.getElementById("coupon-expiry").textContent = `有効期限：${coupon.expiry}`;
 
-  // 賞種に応じたループソース
+  const lblMap = { normal: "ノーマル賞", rare: "レア賞", "last-one": "ラストワン賞" };
+  const label = lblMap[prizeType] || "";
+  const discountEl = document.getElementById("coupon-discount");
+  if (discountEl) {
+    // 同じ装飾で賞種→改行→金額を表示
+    discountEl.innerHTML = (label ? `${label}<br>` : "") + `${coupon.discount}円オフ`;
+  }
+
+  const condEl = document.getElementById("coupon-conditions");
+  if (condEl) condEl.innerHTML = (coupon.conditions || []).map(c => `<li>${c}</li>`).join("");
+
+  const expiryEl = document.getElementById("coupon-expiry");
+  if (expiryEl) expiryEl.textContent = `有効期限：${coupon.expiry}`;
+
   const loopSrcMap = {
     normal: "videos/coupon-normal.mp4",
     rare: "videos/coupon-rare.mp4",
@@ -582,30 +594,14 @@ function openCouponPopupWithLoop(prizeType, store) {
   };
   const loopSrc = loopSrcMap[prizeType] || loopSrcMap.normal;
 
-  // ループ動画を preload -> 再生（ミュートしてループ）
   (async () => {
     if (loopContainer) loopContainer.classList.remove("hidden");
-    try {
-      await preloadVideo(loopVideo, loopSrc, { preload: "metadata", timeout: 3000 });
-    } catch (e) {
-      console.warn("loop video preload failed:", e);
-    }
-    try {
-      loopVideo.loop = true;
-      loopVideo.muted = true;
-      loopVideo.currentTime = 0;
-      await loopVideo.play().catch(() => { /* ignore */ });
-    } catch (e) {
-      console.warn("loopVideo play error:", e);
-    }
+    try { await preloadVideo(loopVideo, loopSrc, { preload: "metadata", timeout: 3000 }); } catch {}
+    try { loopVideo.loop = true; loopVideo.muted = true; loopVideo.currentTime = 0; await loopVideo.play().catch(() => {}); } catch {}
   })();
 
   couponPopup.classList.remove("hidden");
-
-  // 戻るボタンの動作を確実に登録しておく
-  // （この関数経由で開くケースでは setupBackButton が未登録の可能性があるため）
-  try { setupBackButton(); } catch(e) { console.warn("setupBackButton failed:", e); }
-
+  try { setupBackButton(); } catch {}
   const backButton = document.getElementById("back-button");
   if (backButton) backButton.classList.remove("hidden");
   updateStatusArea();
@@ -867,34 +863,35 @@ function setupBackButton() {
 function showCouponCard(store, prizeType) {
   const couponPopup = document.getElementById("coupon-popup");
   const backButton = document.getElementById("back-button");
-  const coupon = store.coupon;
+  const coupon = store.coupon || { discount: 0, conditions: [], expiry: "" };
+
+  // 旧「賞種：〜」行は非表示
+  const typeEl = document.getElementById("coupon-type");
+  if (typeEl) typeEl.style.display = "none";
 
   document.getElementById("coupon-store-name").textContent = store.name;
-  document.getElementById("coupon-discount").textContent = `${coupon.discount}円オフ`;
-  document.getElementById("coupon-conditions").innerHTML = coupon.conditions.map(c => `<li>${c}</li>`).join("");
-  document.getElementById("coupon-expiry").textContent = `有効期限：${coupon.expiry}`;
+
+  const lblMap = { normal: "ノーマル賞", rare: "レア賞", "last-one": "ラストワン賞" };
+  const label = lblMap[prizeType] || "";
+  const discountEl = document.getElementById("coupon-discount");
+  if (discountEl) {
+    discountEl.innerHTML = (label ? `${label}<br>` : "") + `${coupon.discount}円オフ`;
+  }
+
+  const condEl = document.getElementById("coupon-conditions");
+  if (condEl) condEl.innerHTML = (coupon.conditions || []).map(c => `<li>${c}</li>`).join("");
+  const expiryEl = document.getElementById("coupon-expiry");
+  if (expiryEl) expiryEl.textContent = `有効期限：${coupon.expiry}`;
 
   couponPopup.classList.remove("hidden");
-
-  const userId = localStorage.getItem("userId");
-  const key = `myCoupons_${userId}`;
-  const coupons = JSON.parse(localStorage.getItem(key)) || [];
-
-  coupons.push({
-    storeId: store.storeId,
-    storeName: store.name,
-    discount: coupon.discount,
-    conditions: coupon.conditions,
-    expiry: coupon.expiry,
-    type: prizeType,
-    used: false
-  });
-  localStorage.setItem(key, JSON.stringify(coupons));
-
-  backButton.classList.remove("hidden");
-  setupBackButton(); // ← これを追加
-  const totalAmount = coupons.reduce((sum, c) => sum + c.discount, 0);
-  updateCouponSummary(totalAmount);
+  if (backButton) backButton.classList.remove("hidden");
+  setupBackButton();
+  try {
+    const uid = localStorage.getItem("userId");
+    const totalAmount = (JSON.parse(localStorage.getItem(`myCoupons_${uid}`) || "[]"))
+      .reduce((sum, c) => sum + (c.discount || 0), 0);
+    updateCouponSummary(totalAmount);
+  } catch {}
 }
 
 // ７．戻るボタン→ガチャ画面復帰

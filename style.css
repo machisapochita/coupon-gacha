@@ -753,7 +753,7 @@ html, body {
 
 /* ノーマル賞：シルバー */
 .coupon-card.normal {
-  background: linear-gradient(to right, #dcdcdc, #f0f0f0);
+  background: linear-gradient(to right, #70a5f5, #c0d5f5);
 }
 
 /* レア賞：ゴールド */
@@ -805,6 +805,7 @@ html, body {
   font-size: 5vw;
   margin-bottom: 10px;
   border: 0.5px solid black;
+  background-color: rgb(244, 248, 187);
 }
 
 .coupon-actions {
@@ -1215,6 +1216,7 @@ html, body {
   font-size: 5vw;
   margin-bottom: 6px;
   border: 0.5px solid black;
+  background-color: rgb(244, 248, 187);
 }
 
 .modal-key {

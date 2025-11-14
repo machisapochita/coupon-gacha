@@ -6,20 +6,33 @@ const restaurantData = JSON.parse(localStorage.getItem(`restaurantData_${userId}
 const LOG_URL = (typeof window !== "undefined" && window.LOG_URL) ? window.LOG_URL : "https://script.google.com/macros/s/AKfycbwk02U0POEPJfGWzmyn2TqzIpyX10-0WyfTKITw6gB8ceJa9vT_U1-EnEzg5vOAVjoU/exec";
 // -----------------------------------------------------------------------
 
+function prizeLabel(type) {
+  switch (type) {
+    case 'normal': return 'ノーマル賞';
+    case 'rare': return 'レア賞';
+    case 'last-one': return 'ラストワン賞';
+    default: return '';
+  }
+}
+
 function renderCoupons() {
   const container = document.getElementById("coupon-container");
   container.innerHTML = "";
 
   const userId = localStorage.getItem("userId");
-  const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`)) || [];
-  const sortedCoupons = coupons.sort((a, b) => a.used - b.used);
+  const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
+
+  // used の有無を明確に数値化してソート（未使用が先）
+  const sortedCoupons = coupons.slice().sort((a, b) => Number(!!a.used) - Number(!!b.used));
 
   sortedCoupons.forEach(coupon => {
     const card = document.createElement("div");
     card.className = `coupon-card ${coupon.type}`;
+    const label = prizeLabel(coupon.type);
+    const discountHtml = (label ? `${label}<br>` : "") + `${coupon.discount}円オフ`;
+
     if (coupon.used) {
       card.classList.add("used", "collapsed");
-
       card.innerHTML = `
         <div class="collapsed-summary">
           <div class="sumi-mark">
@@ -27,7 +40,7 @@ function renderCoupons() {
           </div>
           <div class="summary-text">
             <h3 class="store-name">${coupon.storeName}</h3>
-            <p class="discount-amount">${coupon.discount}円オフ</p>
+            <p class="discount-amount">${discountHtml}</p>
           </div>
         </div>
 
@@ -44,7 +57,7 @@ function renderCoupons() {
         <div class="expand-indicator">▼</div>
       `;
 
-      // 展開・折りたたみ処理
+      // 展開・折りたたみ
       card.addEventListener("click", () => {
         const details = card.querySelector(".collapsed-details");
         const indicator = card.querySelector(".expand-indicator");
@@ -54,20 +67,15 @@ function renderCoupons() {
         indicator.textContent = isVisible ? "▼" : "▲";
       });
 
-      // 紹介ボタンのイベント登録
       const introButton = card.querySelector(".intro-button");
       if (introButton) {
         introButton.addEventListener("click", (e) => {
-          e.stopPropagation(); // カードの展開イベントを防ぐ
+          e.stopPropagation();
           const storeId = introButton.dataset.id;
-          const userId = localStorage.getItem("userId");
-          const restaurantData = JSON.parse(localStorage.getItem(`restaurantData_${userId}`)) || [];
+          const restaurantData = JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]");
           const store = restaurantData.find(s => s.storeId === storeId);
-          if (!store) {
-            alert("店舗情報が見つかりませんでした");
-            return;
-          }
-          store.unlocked = true; // クーポン所持者なので表示許可
+          if (!store) { alert("店舗情報が見つかりませんでした"); return; }
+          store.unlocked = true;
           openModal(store);
         });
       }
@@ -75,7 +83,7 @@ function renderCoupons() {
       card.innerHTML = `
         <div class="coupon-header">
           <h3 class="store-name">${coupon.storeName}</h3>
-          <p class="discount-amount">${coupon.discount}円オフ</p>
+          <p class="discount-amount">${discountHtml}</p>
         </div>
         <ul class="coupon-conditions">
           ${coupon.conditions.map(c => `<li>${c}</li>`).join("")}
@@ -90,15 +98,10 @@ function renderCoupons() {
       if (introButton) {
         introButton.addEventListener("click", () => {
           const storeId = introButton.dataset.id;
-          const userId = localStorage.getItem("userId");
-          const restaurantData = JSON.parse(localStorage.getItem(`restaurantData_${userId}`)) || [];
+          const restaurantData = JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]");
           const store = restaurantData.find(s => s.storeId === storeId);
-          if (!store) {
-            alert("店舗情報が見つかりませんでした");
-            return;
-          }
-
-          openModal(store); // ✅ モーダル表示
+          if (!store) { alert("店舗情報が見つかりませんでした"); return; }
+          openModal(store);
         });
       }
     }
@@ -106,26 +109,20 @@ function renderCoupons() {
     container.appendChild(card);
   });
 
-  // ✅ 再描画後にイベントを再登録
+  // 「使う」ボタン→モーダル表示（割引は賞種＋改行表記）
   document.querySelectorAll(".use-button").forEach(button => {
-    // 重複登録防止
     if (button.dataset.handlerAttached === "1") return;
     button.dataset.handlerAttached = "1";
     button.addEventListener("click", () => {
       const storeId = button.dataset.id;
-      const userId = localStorage.getItem("userId");
-      const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`)) || [];
+      const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
       const coupon = coupons.find(c => c.storeId === storeId);
       if (!coupon) return;
 
-      // restaurants データから店舗情報を探して currentStore にセット
-      const restaurants = JSON.parse(localStorage.getItem(`restaurantData_${userId}`)) || [];
-      const store = restaurants.find(r => r.storeId === storeId) || null;
-      currentStore = store; // store が null でもセットしておく
-
       const modal = document.getElementById("coupon-modal");
       modal.querySelector(".modal-store-name").textContent = coupon.storeName;
-      modal.querySelector(".modal-discount").textContent = `${coupon.discount}円オフ`;
+      const label = prizeLabel(coupon.type);
+      modal.querySelector(".modal-discount").innerHTML = (label ? `${label}<br>` : "") + `${coupon.discount}円オフ`;
       modal.querySelector(".modal-conditions").innerHTML = coupon.conditions.map(c => `<li>${c}</li>`).join("");
       modal.querySelector(".modal-expiry").textContent = `有効期限：${coupon.expiry}`;
       modal.querySelector("#key-input").value = "";
@@ -134,11 +131,8 @@ function renderCoupons() {
     });
   });
 
-  // レンダリング完了後にローディングを非表示
   const loadingOverlay = document.getElementById("loading-overlay");
-  if (loadingOverlay) {
-    loadingOverlay.classList.add("hidden");
-  }
+  if (loadingOverlay) loadingOverlay.classList.add("hidden");
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -569,6 +563,9 @@ function markCouponUsedAndSync(couponIdentifier) {
     localStorage.setItem(restaurantsKey, JSON.stringify(restaurants));
     try { renderCoupons(); } catch(e) {}
     try { if (typeof window.renderRestaurants === "function") window.renderRestaurants(); } catch(e){}
+
+    // ここを追加: 同期用のカスタムイベント（restaurants.js が購読）
+    try { window.dispatchEvent(new Event('couponsChanged')); } catch(e) {}
 
     // ここからサーバ同期ロジックを安全ラッパー経由に変更します
     const snapshot = {
