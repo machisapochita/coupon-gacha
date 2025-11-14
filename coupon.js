@@ -159,7 +159,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.warn("coupon.js: DOMContentLoaded pre-sync error:", e);
   }
 
-  // その後レンダリング
+  // レンダリング実行（この中でローディングが非表示になる）
   renderCoupons();
 });
 

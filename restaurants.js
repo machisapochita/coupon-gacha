@@ -242,8 +242,20 @@ function renderRestaurants(restaurantArray) {
       container.appendChild(card);
     }
 
+    // レンダリング完了後にローディングを非表示
+    const loadingOverlay = document.getElementById("loading-overlay");
+    if (loadingOverlay) {
+      loadingOverlay.classList.add("hidden");
+    }
+
   } catch (err) {
     console.error('renderRestaurants failed:', err);
+    
+    // エラーが発生してもローディングは非表示にする
+    const loadingOverlay = document.getElementById("loading-overlay");
+    if (loadingOverlay) {
+      loadingOverlay.classList.add("hidden");
+    }
   }
 }
 
