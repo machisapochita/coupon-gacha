@@ -1373,93 +1373,126 @@ async function loadGachaStateFromServer(userId) {
   }
 }
 
-// --- applyServerStateToLocal を安全に置き換え（server -> local のマージと apply ガード） ---
+// --- applyServerStateToLocal: サーバ状態を安全にローカルへ適用（restaurantsDelta 対応版） ---
 function applyServerStateToLocal(payload, userId) {
-  if (!payload || !payload.state) {
-    console.log('applyServerStateToLocal: no payload.state');
+  if (!payload) {
+    console.log('applyServerStateToLocal: empty payload');
     return;
   }
-  console.log('applyServerStateToLocal: start', userId);
 
-  // ガードを立てる（apply 中は保存を遅延させる）
+  // doGet の戻りを両対応: { state, updatedAt } または state そのもの
+  const serverState = payload.state || payload || {};
+  const rootUpdatedAt = payload.updatedAt || serverState.updatedAt || 0;
+
+  if (!userId) userId = localStorage.getItem('userId');
+  if (!userId) {
+    console.warn('applyServerStateToLocal: no userId');
+    return;
+  }
+
+  const gachaKey = `gachaState_${userId}`;
+  const restaurantKey = `restaurantData_${userId}`;
+  const couponsKey = `myCoupons_${userId}`;
+
+  // apply 中は保存系を抑止する
   window.__applyingServerState = true;
+  console.log('applyServerStateToLocal: start (updatedAt=%s)', rootUpdatedAt);
 
   try {
-    const serverState = payload.state || {};
-    const serverRootUpdatedAt = payload.updatedAt || serverState.updatedAt || 0;
-    const serverGachaUpdatedAt = serverState.gachaState && serverState.gachaState.updatedAt ? serverState.gachaState.updatedAt : 0;
+    // 1) restaurantData の確保（なければ初期データをセット）
+    let localRestaurants = null;
+    try {
+      localRestaurants = JSON.parse(localStorage.getItem(restaurantKey) || 'null');
+    } catch (e) {
+      localRestaurants = null;
+    }
+    if (!Array.isArray(localRestaurants) || localRestaurants.length === 0) {
+      const init = (window.initialRestaurantData || []).slice();
+      init.updatedAt = init.updatedAt || 0;
+      localStorage.setItem(restaurantKey, JSON.stringify(init));
+      localRestaurants = init;
+    }
 
-    // keys
-    const gachaKey = `gachaState_${userId}`;
-    const restaurantKey = `restaurantData_${userId}`;
-    const couponsKey = `myCoupons_${userId}`;
-
-    // 現在のローカル値
-    const localGacha = JSON.parse(localStorage.getItem(gachaKey) || 'null');
-    const localRestaurants = JSON.parse(localStorage.getItem(restaurantKey) || 'null');
-    const localCoupons = JSON.parse(localStorage.getItem(couponsKey) || 'null');
-
-    // --- gachaState のマージ（サーバの方が新しければ上書き） ---
-    if (serverState.gachaState) {
-      const localGachaUpdated = localGacha && (localGacha.updatedAt || 0);
-      if (serverGachaUpdatedAt > localGachaUpdated) {
-        const newGacha = Object.assign({}, serverState.gachaState);
-        // もし updatedAt が無ければ補う
-        if (!newGacha.updatedAt) newGacha.updatedAt = serverGachaUpdatedAt || serverRootUpdatedAt || Date.now();
-        localStorage.setItem(gachaKey, JSON.stringify(newGacha));
-        console.log('applyServerStateToLocal: applied server gachaState (updatedAt)', newGacha.updatedAt);
-      } else {
-        console.log('applyServerStateToLocal: skipped gacha overwrite (local is newer)', { localGachaUpdated, serverGachaUpdatedAt });
+    // 2) restaurantsDelta（コンパクト差分）の適用
+    //    unlockedBaseIds に含まれる baseId の全カードをアンロック（idempotent）
+    if (serverState.restaurantsDelta && Array.isArray(serverState.restaurantsDelta.unlockedBaseIds)) {
+      const set = new Set(serverState.restaurantsDelta.unlockedBaseIds);
+      let changed = false;
+      const next = localRestaurants.map(r => {
+        if (r && set.has(r.baseId) && !r.unlocked) {
+          changed = true;
+          return Object.assign({}, r, { unlocked: true });
+        }
+        return r;
+      });
+      if (changed) {
+        next.updatedAt = Math.max(rootUpdatedAt || 0, Date.now());
+        localStorage.setItem(restaurantKey, JSON.stringify(next));
+        localRestaurants = next;
+        console.log('applyServerStateToLocal: applied restaurantsDelta (unlocked %d baseIds)', set.size);
       }
     }
 
-    // --- restaurantData のマージ (root updatedAt で判断) ---
+    // 3) フルの restaurantData が来た場合は updatedAt で上書き判定（基本は delta 優先運用）
     if (Array.isArray(serverState.restaurantData)) {
-      const localRestaurantsUpdated = (localRestaurants && localRestaurants.updatedAt) ? localRestaurants.updatedAt : 0;
-      // 多くのケースで restaurantData に個別 updatedAt が無いため root updatedAt で判定
-      if ((serverRootUpdatedAt || 0) > (localRestaurantsUpdated || 0)) {
-        // store 配列そのまま置き換える（要件によりマージ戦略を変更可）
-        const newRestaurants = Array.isArray(serverState.restaurantData) ? serverState.restaurantData.slice() : [];
-        // 付加情報として updatedAt を置いておく
-        newRestaurants.updatedAt = serverRootUpdatedAt || Date.now();
-        localStorage.setItem(restaurantKey, JSON.stringify(newRestaurants));
-        console.log('applyServerStateToLocal: applied server restaurantData (count)', newRestaurants.length);
+      const localRestaurantsUpdatedAt = (localRestaurants && localRestaurants.updatedAt) ? localRestaurants.updatedAt : 0;
+      if ((rootUpdatedAt || 0) > (localRestaurantsUpdatedAt || 0)) {
+        const arr = serverState.restaurantData.slice();
+        arr.updatedAt = rootUpdatedAt || Date.now();
+        localStorage.setItem(restaurantKey, JSON.stringify(arr));
+        localRestaurants = arr;
+        console.log('applyServerStateToLocal: replaced restaurantData (count=%d)', arr.length);
       } else {
-        console.log('applyServerStateToLocal: skipped restaurantData overwrite (local is newer)');
+        console.log('applyServerStateToLocal: skip restaurantData (local newer)');
       }
     }
 
-    // --- coupons のマージ（サーバが新しければ置き換え） ---
+    // 4) coupons（サーバが新しければ置き換え）
     if (Array.isArray(serverState.coupons)) {
-      const localCouponsUpdated = (localCoupons && localCoupons.updatedAt) ? localCoupons.updatedAt : 0;
-      if ((serverRootUpdatedAt || 0) > (localCouponsUpdated || 0)) {
-        const newCoupons = serverState.coupons.slice();
-        newCoupons.updatedAt = serverRootUpdatedAt || Date.now();
-        localStorage.setItem(couponsKey, JSON.stringify(newCoupons));
-        console.log('applyServerStateToLocal: applied server coupons (count)', newCoupons.length);
+      let localCoupons = [];
+      try { localCoupons = JSON.parse(localStorage.getItem(couponsKey) || '[]'); } catch (e) { localCoupons = []; }
+      const localCouponsUpdatedAt = (localCoupons && localCoupons.updatedAt) ? localCoupons.updatedAt : 0;
+      if ((rootUpdatedAt || 0) > (localCouponsUpdatedAt || 0)) {
+        const nextCoupons = serverState.coupons.slice();
+        nextCoupons.updatedAt = rootUpdatedAt || Date.now();
+        localStorage.setItem(couponsKey, JSON.stringify(nextCoupons));
+        console.log('applyServerStateToLocal: applied coupons (count=%d)', nextCoupons.length);
       } else {
-        console.log('applyServerStateToLocal: skipped coupons overwrite (local is newer)');
+        console.log('applyServerStateToLocal: skip coupons (local newer)');
       }
     }
 
-    // 必要なら UI を更新（restaurants.js 等で使われる updateStatusArea / renderRestaurants を呼び出す）
-    try { updateStatusArea && updateStatusArea(); } catch (e) {}
-    try { renderRestaurants && renderRestaurants(); } catch (e) {}
+    // 5) gachaState（updatedAt で競合回避）
+    if (serverState.gachaState) {
+      let localGacha = {};
+      try { localGacha = JSON.parse(localStorage.getItem(gachaKey) || '{}'); } catch (e) { localGacha = {}; }
+      const serverGachaUpdated = serverState.gachaState.updatedAt || rootUpdatedAt || 0;
+      const localGachaUpdated = localGacha.updatedAt || 0;
 
+      if (serverGachaUpdated > localGachaUpdated) {
+        const merged = Object.assign({}, localGacha, serverState.gachaState);
+        if (!merged.updatedAt) merged.updatedAt = serverGachaUpdated;
+        localStorage.setItem(gachaKey, JSON.stringify(merged));
+        console.log('applyServerStateToLocal: applied gachaState (updatedAt=%s)', merged.updatedAt);
+      } else {
+        console.log('applyServerStateToLocal: skip gachaState (local newer)');
+      }
+    }
+
+    // 6) UI 反映
+    try { typeof updateStatusArea === 'function' && updateStatusArea(); } catch (e) { /* noop */ }
+    try { typeof renderRestaurants === 'function' && renderRestaurants(); } catch (e) { /* noop */ }
   } catch (err) {
     console.error('applyServerStateToLocal: error', err);
   } finally {
-    // apply 完了 — 少し遅延してフラグ解除し、もし保存がキューされていればフラッシュする
+    // 適用ガード解除と、apply 中にキューされた保存のフラッシュ
     setTimeout(() => {
       window.__applyingServerState = false;
-      // flush queued snapshot if exists
       if (window.__queuedSnapshotUserId && typeof window.saveStateSnapshotNow === 'function') {
         const queuedUid = window.__queuedSnapshotUserId;
-        console.log('applyServerStateToLocal: flushing queued snapshot for', queuedUid);
-        // clear before calling to avoid recursion
         window.__queuedSnapshotUserId = null;
         window.__queuedSnapshot = null;
-        try { window.saveStateSnapshotNow(queuedUid); } catch (e) { console.error(e); }
+        try { window.saveStateSnapshotNow(queuedUid); } catch (e) { console.warn('flush queued save failed', e); }
       }
     }, 50);
   }

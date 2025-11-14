@@ -259,58 +259,130 @@ function renderRestaurants(restaurantArray) {
   }
 }
 
-// --- applyServerStateToLocal ---
-// サーバの payload を安全に local に適用し、render を呼ぶ
+// --- applyServerStateToLocal: サーバ状態を安全にローカルへ適用（restaurantsDelta 対応版） ---
 function applyServerStateToLocal(payload, userId) {
+  if (!payload) {
+    console.log('applyServerStateToLocal(restaurants): empty payload');
+    return;
+  }
+
+  // doGet の戻りを両対応: { state, updatedAt } または state そのもの
+  const serverState = payload.state || payload || {};
+  const rootUpdatedAt = payload.updatedAt || serverState.updatedAt || 0;
+
+  if (!userId) userId = localStorage.getItem('userId');
+  if (!userId) {
+    console.warn('applyServerStateToLocal(restaurants): no userId');
+    return;
+  }
+
+  const gachaKey = `gachaState_${userId}`;
+  const restaurantKey = `restaurantData_${userId}`;
+  const couponsKey = `myCoupons_${userId}`;
+
+  // 適用中は保存系を抑止（終わりにフラッシュ）
+  window.__applyingServerState = true;
+  console.log('applyServerStateToLocal(restaurants): start (updatedAt=%s)', rootUpdatedAt);
+
   try {
-    if (!payload || !payload.state) return;
-    const serverState = payload.state || {};
-    const serverUpdatedAt = payload.updatedAt || serverState.updatedAt || 0;
-    const gKey = `gachaState_${userId}`;
-    const rKey = `restaurantData_${userId}`;
-    const cKey = `myCoupons_${userId}`;
+    // 1) restaurantData の確保（なければ初期データをセット）
+    let localRestaurants = null;
+    try {
+      localRestaurants = JSON.parse(localStorage.getItem(restaurantKey) || 'null');
+    } catch (e) {
+      localRestaurants = null;
+    }
+    if (!Array.isArray(localRestaurants) || localRestaurants.length === 0) {
+      const init = (window.initialRestaurantData || []).slice();
+      init.updatedAt = init.updatedAt || 0;
+      localStorage.setItem(restaurantKey, JSON.stringify(init));
+      localRestaurants = init;
+    }
 
-    const localG = JSON.parse(localStorage.getItem(gKey) || "null");
-    const localR = JSON.parse(localStorage.getItem(rKey) || "null");
-    const localC = JSON.parse(localStorage.getItem(cKey) || "null");
-
-    if (serverState.gachaState) {
-      const sG = Number(serverState.gachaState.updatedAt || serverUpdatedAt || 0);
-      const lG = localG && Number(localG.updatedAt || 0);
-      if (sG > (lG || 0)) {
-        const newG = Object.assign({}, serverState.gachaState);
-        if (!newG.updatedAt) newG.updatedAt = sG;
-        localStorage.setItem(gKey, JSON.stringify(newG));
+    // 2) restaurantsDelta の適用（baseId 単位でアンロック、冪等）
+    if (serverState.restaurantsDelta && Array.isArray(serverState.restaurantsDelta.unlockedBaseIds)) {
+      const unlockSet = new Set(serverState.restaurantsDelta.unlockedBaseIds);
+      let changed = false;
+      const next = localRestaurants.map(r => {
+        if (r && unlockSet.has(r.baseId) && !r.unlocked) {
+          changed = true;
+          return Object.assign({}, r, { unlocked: true });
+        }
+        return r;
+      });
+      if (changed) {
+        next.updatedAt = Math.max(rootUpdatedAt || 0, Date.now());
+        localStorage.setItem(restaurantKey, JSON.stringify(next));
+        localRestaurants = next;
+        console.log('applyServerStateToLocal(restaurants): applied restaurantsDelta (unlocked %d baseIds)', unlockSet.size);
       }
     }
 
+    // 3) フルの restaurantData が来た場合は updatedAt で上書き判定（通常は delta 優先）
     if (Array.isArray(serverState.restaurantData)) {
-      const lRUpdated = (localR && localR.updatedAt) ? Number(localR.updatedAt) : 0;
-      const sRoot = Number(serverState.updatedAt || serverUpdatedAt || 0);
-      if (sRoot > lRUpdated) {
-        const nr = serverState.restaurantData.slice();
-        nr.updatedAt = sRoot;
-        localStorage.setItem(rKey, JSON.stringify(nr));
+      const localRestaurantsUpdatedAt = (localRestaurants && localRestaurants.updatedAt) ? localRestaurants.updatedAt : 0;
+      if ((rootUpdatedAt || 0) > (localRestaurantsUpdatedAt || 0)) {
+        const arr = serverState.restaurantData.slice();
+        arr.updatedAt = rootUpdatedAt || Date.now();
+        localStorage.setItem(restaurantKey, JSON.stringify(arr));
+        localRestaurants = arr;
+        console.log('applyServerStateToLocal(restaurants): replaced restaurantData (count=%d)', arr.length);
+      } else {
+        console.log('applyServerStateToLocal(restaurants): skip restaurantData (local newer)');
       }
     }
 
+    // 4) coupons（サーバが新しければ置き換え）
     if (Array.isArray(serverState.coupons)) {
-      const lCUpdated = (localC && localC.updatedAt) ? Number(localC.updatedAt) : 0;
-      const sRoot = Number(serverState.updatedAt || serverUpdatedAt || 0);
-      if (sRoot > lCUpdated) {
-        const nc = serverState.coupons.slice();
-        nc.updatedAt = sRoot;
-        localStorage.setItem(cKey, JSON.stringify(nc));
+      let localCoupons = [];
+      try { localCoupons = JSON.parse(localStorage.getItem(couponsKey) || '[]'); } catch (e) { localCoupons = []; }
+      const localCouponsUpdatedAt = (localCoupons && localCoupons.updatedAt) ? localCoupons.updatedAt : 0;
+      if ((rootUpdatedAt || 0) > (localCouponsUpdatedAt || 0)) {
+        const nextCoupons = serverState.coupons.slice();
+        nextCoupons.updatedAt = rootUpdatedAt || Date.now();
+        localStorage.setItem(couponsKey, JSON.stringify(nextCoupons));
+        console.log('applyServerStateToLocal(restaurants): applied coupons (count=%d)', nextCoupons.length);
+      } else {
+        console.log('applyServerStateToLocal(restaurants): skip coupons (local newer)');
       }
     }
 
-    // 描画
-    const arr = JSON.parse(localStorage.getItem(rKey) || "[]");
-    renderRestaurants(arr);
-    try { if (typeof updateStatusArea === "function") updateStatusArea(); } catch(e){}
+    // 5) gachaState（updatedAt で競合回避）
+    if (serverState.gachaState) {
+      let localGacha = {};
+      try { localGacha = JSON.parse(localStorage.getItem(gachaKey) || '{}'); } catch (e) { localGacha = {}; }
+      const serverGachaUpdated = serverState.gachaState.updatedAt || rootUpdatedAt || 0;
+      const localGachaUpdated = localGacha.updatedAt || 0;
+      if (serverGachaUpdated > localGachaUpdated) {
+        const merged = Object.assign({}, localGacha, serverState.gachaState);
+        if (!merged.updatedAt) merged.updatedAt = serverGachaUpdated;
+        localStorage.setItem(gachaKey, JSON.stringify(merged));
+        console.log('applyServerStateToLocal(restaurants): applied gachaState (updatedAt=%s)', merged.updatedAt);
+      } else {
+        console.log('applyServerStateToLocal(restaurants): skip gachaState (local newer)');
+      }
+    }
 
+    // 6) UI 反映（レンダーとローディング解除）
+    try { typeof updateStatusArea === 'function' && updateStatusArea(); } catch (e) {}
+    try { typeof renderRestaurants === 'function' && renderRestaurants(); } catch (e) {}
+    try {
+      const overlay = document.getElementById('loading-overlay');
+      if (overlay) overlay.classList.add('hidden');
+    } catch (e) {}
   } catch (err) {
-    console.error("applyServerStateToLocal failed:", err);
+    console.error('applyServerStateToLocal(restaurants): error', err);
+  } finally {
+    // 適用ガード解除と、apply 中にキューされた保存のフラッシュ
+    setTimeout(() => {
+      window.__applyingServerState = false;
+      if (window.__queuedSnapshotUserId && typeof window.saveStateSnapshotNow === 'function') {
+        const queuedUid = window.__queuedSnapshotUserId;
+        window.__queuedSnapshotUserId = null;
+        window.__queuedSnapshot = null;
+        try { window.saveStateSnapshotNow(queuedUid); } catch (e) { console.warn('flush queued save failed', e); }
+      }
+    }, 50);
   }
 }
 
