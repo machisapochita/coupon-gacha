@@ -108,10 +108,11 @@ function renderRestaurants(restaurantArray) {
     const userId = localStorage.getItem('userId') || '';
     const key = `restaurantData_${userId}`;
 
-    // myCoupons を取得（レンダリング時に必ず参照）
+    // myCoupons 取得
     let myCoupons = [];
     try { myCoupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || '[]'); } catch(e){ myCoupons = []; }
 
+    // レストラン配列取得
     let arr = Array.isArray(restaurantArray) ? restaurantArray.slice() : null;
     if (!arr) {
       try {
@@ -137,17 +138,32 @@ function renderRestaurants(restaurantArray) {
       return;
     }
 
-    // baseId ごとに代表を選ぶ（最大 10 件）
+    // baseId ごとにグループ化
     const groups = {};
     for (const s of arr) {
       if (!s || !s.baseId) continue;
-      if (!groups[s.baseId]) groups[s.baseId] = [];
-      groups[s.baseId].push(s);
+      (groups[s.baseId] ||= []).push(s);
     }
     const reps = Object.values(groups).map(list => list[0]).slice(0, 10);
 
     for (const store of reps) {
+      const groupList = groups[store.baseId] || [];
       const isLocked = !store.unlocked;
+
+      // baseId 内で使用済みクーポンが存在するか判定
+      // 1) クーポン配列から baseId マッチ
+      const couponsForBase = myCoupons.filter(c => c && c.storeId && c.storeId.split('-')[0] === store.baseId);
+      const anyUsedCouponInCoupons = couponsForBase.some(c => c.used === true);
+
+      // 2) グループ内の店舗状態から使用済み検出
+      const anyUsedInGroupFlags = groupList.some(s =>
+        s.couponUsed === true ||
+        (s.coupon && s.coupon.used === true)
+      );
+
+      // 最終使用済みフラグ
+      const couponUsedResolved = anyUsedCouponInCoupons || anyUsedInGroupFlags;
+
       const card = document.createElement('div');
       card.className = 'restaurant-card ' + (isLocked ? 'locked' : 'unlocked');
       if (store.storeId) card.setAttribute('data-store-id', store.storeId);
@@ -162,7 +178,7 @@ function renderRestaurants(restaurantArray) {
       const content = document.createElement('div');
       content.className = 'card-content';
 
-      // 画像（ロック時は secret_image.png を強制）
+      // 画像
       const img = document.createElement('img');
       img.className = 'store-image';
       if (isLocked) {
@@ -182,26 +198,19 @@ function renderRestaurants(restaurantArray) {
       g.textContent = isLocked ? '？？？' : (store.genre || '');
       const t = document.createElement('p'); t.className = 'store-town';
       t.textContent = isLocked ? '？？？' : (store.town || '');
+
       const c = document.createElement('p'); c.className = 'coupon-status';
-
-      // --- 決定ロジック: myCoupons を優先して判定する ---
-      // myCoupons 内の該当 storeId を探す（store.storeId がキー）
-      let couponEntry = null;
-      if (Array.isArray(myCoupons) && store.storeId) {
-        couponEntry = myCoupons.find(cc => cc && cc.storeId === store.storeId);
-      }
-
-      const nestedUsed = store.coupon && store.coupon.used === true;
-      const topUsed = typeof store.couponUsed !== 'undefined' && store.couponUsed === true;
-      const myCouponUsed = couponEntry && couponEntry.used === true;
-
-      // 優先順位: myCoupons.used > nestedUsed > topUsed
-      if (myCouponUsed || nestedUsed || topUsed) {
+      if (couponUsedResolved) {
         c.textContent = 'クーポン：済';
-        c.classList.add('used');       // .coupon-status.used
+        c.classList.add('used');
       } else if (!isLocked) {
-        c.textContent = 'クーポン：未使用';
-        c.classList.add('unused');     // .coupon-status.unused
+        // baseId にクーポンをまだ獲得していない（= 該当クーポン配列に存在しない）
+        if (couponsForBase.length === 0) {
+          c.textContent = 'クーポン：未獲得';
+        } else {
+          c.textContent = 'クーポン：未使用';
+          c.classList.add('unused');
+        }
       } else {
         c.textContent = 'クーポン：未獲得';
       }
@@ -209,11 +218,10 @@ function renderRestaurants(restaurantArray) {
       details.appendChild(g);
       details.appendChild(t);
       details.appendChild(c);
-
       content.appendChild(details);
       card.appendChild(content);
 
-      // lock overlay（ロック時のみ表示）
+      // ロックオーバーレイ
       if (isLocked) {
         const overlay = document.createElement('div');
         overlay.className = 'lock-overlay';
@@ -225,37 +233,27 @@ function renderRestaurants(restaurantArray) {
         card.appendChild(overlay);
       }
 
-      // クリック挙動：ロックはアラート、アンロックはモーダル表示（動画はボタンで起動）
+      // クリック挙動
       card.addEventListener('click', (e) => {
         e.preventDefault();
-        try {
-          if (isLocked) {
-            alert('この店舗はまだアンロックされていません！');
-            return;
-          }
-          openModal(store);
-        } catch (err) {
-          console.warn('card click handler failed', err);
+        if (isLocked) {
+          alert('この店舗はまだアンロックされていません！');
+          return;
         }
+        try { openModal(store); } catch (err) { console.warn('card click handler failed', err); }
       });
 
       container.appendChild(card);
     }
 
-    // レンダリング完了後にローディングを非表示
+    // レンダリング完了後ローディング非表示
     const loadingOverlay = document.getElementById("loading-overlay");
-    if (loadingOverlay) {
-      loadingOverlay.classList.add("hidden");
-    }
+    if (loadingOverlay) loadingOverlay.classList.add("hidden");
 
   } catch (err) {
     console.error('renderRestaurants failed:', err);
-    
-    // エラーが発生してもローディングは非表示にする
     const loadingOverlay = document.getElementById("loading-overlay");
-    if (loadingOverlay) {
-      loadingOverlay.classList.add("hidden");
-    }
+    if (loadingOverlay) loadingOverlay.classList.add("hidden");
   }
 }
 
