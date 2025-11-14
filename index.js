@@ -16,6 +16,30 @@ document.addEventListener("DOMContentLoaded", () => {
     return;
   }
 
+  // ログイン後にサーバー状態を取得する関数
+  async function loadUserStateAfterLogin(userId) {
+    try {
+      // gacha.js の関数を利用（既に定義済み）
+      if (typeof window.loadGachaStateFromServer === 'function' && 
+          typeof window.applyServerStateToLocal === 'function') {
+        
+        console.log('Loading server state for user:', userId);
+        const res = await window.loadGachaStateFromServer(userId);
+        
+        if (res && (res.status === 'ok' || res.status === 'OK') && res.state) {
+          window.applyServerStateToLocal(res, userId);
+          console.log('Server state applied successfully');
+        } else {
+          console.log('No server state found or empty response');
+        }
+      } else {
+        console.warn('State loading functions not available');
+      }
+    } catch (e) {
+      console.warn('Failed to load user state:', e);
+    }
+  }
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const enteredId = input.value.trim();
@@ -34,7 +58,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const matchedUser = data.users.find(user => user.id === enteredId);
         if (matchedUser) {
           localStorage.setItem("userId", matchedUser.id);
-          localStorage.setItem("salonId", matchedUser.salonId); // ← 追加
+          localStorage.setItem("salonId", matchedUser.salonId);
+          
+          // ログイン直後にサーバー状態を取得・適用
+          await loadUserStateAfterLogin(matchedUser.id);
         }
         successMsg.classList.remove("hidden");
 
