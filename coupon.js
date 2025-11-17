@@ -1,10 +1,7 @@
-const userId = localStorage.getItem("userId");
-const restaurantData = JSON.parse(localStorage.getItem(`restaurantData_${userId}`)) || [];
+// coupon.js — 改良版（クーポン使用の確実な反映 + 賞種ラベル表示）
 
-// --- ここを追加: ページ単位で window.LOG_URL を設定できるようにする ---
-// 優先順: window.LOG_URL (HTML側で設定) -> 埋め込みフォールバック
+// ページ単位で window.LOG_URL を設定できるようにする（HTML 側で上書き可能）
 const LOG_URL = (typeof window !== "undefined" && window.LOG_URL) ? window.LOG_URL : "https://script.google.com/macros/s/AKfycbwk02U0POEPJfGWzmyn2TqzIpyX10-0WyfTKITw6gB8ceJa9vT_U1-EnEzg5vOAVjoU/exec";
-// -----------------------------------------------------------------------
 
 function prizeLabel(type) {
   switch (type) {
@@ -17,17 +14,18 @@ function prizeLabel(type) {
 
 function renderCoupons() {
   const container = document.getElementById("coupon-container");
+  if (!container) return;
   container.innerHTML = "";
 
   const userId = localStorage.getItem("userId");
   const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
 
-  // used の有無を明確に数値化してソート（未使用が先）
+  // 未使用を先に（数値化したソートで安定）
   const sortedCoupons = coupons.slice().sort((a, b) => Number(!!a.used) - Number(!!b.used));
 
   sortedCoupons.forEach(coupon => {
     const card = document.createElement("div");
-    card.className = `coupon-card ${coupon.type}`;
+    card.className = `coupon-card ${coupon.type || ''}`;
     const label = prizeLabel(coupon.type);
     const discountHtml = (label ? `${label}<br>` : "") + `${coupon.discount}円オフ`;
 
@@ -57,7 +55,6 @@ function renderCoupons() {
         <div class="expand-indicator">▼</div>
       `;
 
-      // 展開・折りたたみ
       card.addEventListener("click", () => {
         const details = card.querySelector(".collapsed-details");
         const indicator = card.querySelector(".expand-indicator");
@@ -109,24 +106,32 @@ function renderCoupons() {
     container.appendChild(card);
   });
 
-  // 「使う」ボタン→モーダル表示（割引は賞種＋改行表記）
+  // 「使う」ボタンのイベント登録（重複登録は防ぐ）
   document.querySelectorAll(".use-button").forEach(button => {
     if (button.dataset.handlerAttached === "1") return;
     button.dataset.handlerAttached = "1";
     button.addEventListener("click", () => {
       const storeId = button.dataset.id;
+      const userId = localStorage.getItem("userId");
       const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
       const coupon = coupons.find(c => c.storeId === storeId);
-      if (!coupon) return;
+      if (!coupon) {
+        console.warn("use-button: coupon not found for storeId", storeId);
+        return;
+      }
 
       const modal = document.getElementById("coupon-modal");
+      if (!modal) {
+        console.warn("use-button: coupon-modal not present");
+        return;
+      }
       modal.querySelector(".modal-store-name").textContent = coupon.storeName;
       const label = prizeLabel(coupon.type);
       modal.querySelector(".modal-discount").innerHTML = (label ? `${label}<br>` : "") + `${coupon.discount}円オフ`;
-      modal.querySelector(".modal-conditions").innerHTML = coupon.conditions.map(c => `<li>${c}</li>`).join("");
+      modal.querySelector(".modal-conditions").innerHTML = (coupon.conditions || []).map(c => `<li>${c}</li>`).join("");
       modal.querySelector(".modal-expiry").textContent = `有効期限：${coupon.expiry}`;
       modal.querySelector("#key-input").value = "";
-      modal.dataset.storeId = storeId;
+      modal.dataset.storeId = storeId; // ここで確実に storeId を保持する
       modal.classList.remove("hidden");
     });
   });
@@ -135,15 +140,17 @@ function renderCoupons() {
   if (loadingOverlay) loadingOverlay.classList.add("hidden");
 }
 
+// 統合した DOMContentLoaded: サーバ state 読込 + 確定ボタン登録 + 初回 render
 document.addEventListener("DOMContentLoaded", async () => {
   try {
     const userId = localStorage.getItem("userId");
     if (userId) {
       try {
         const url = LOG_URL + "?action=getState&userId=" + encodeURIComponent(userId);
-        const resp = await fetch(url, { method: "GET" }).then(r => r.text()).then(t => { try { return JSON.parse(t); } catch(e) { return { status: "parse-error", raw: t }; }});
+        const respText = await fetch(url, { method: "GET" }).then(r => r.text());
+        let resp;
+        try { resp = JSON.parse(respText); } catch(e) { resp = { status: "parse-error", raw: respText }; }
         if (resp && resp.status === "OK" && resp.found && resp.state) {
-          // サーバ優先で localStorage に上書き
           if (resp.state.coupons) localStorage.setItem(`myCoupons_${userId}`, JSON.stringify(resp.state.coupons));
           if (resp.state.restaurantData) localStorage.setItem(`restaurantData_${userId}`, JSON.stringify(resp.state.restaurantData));
           if (resp.state.gachaState) localStorage.setItem(`gachaState_${userId}`, JSON.stringify(resp.state.gachaState));
@@ -159,107 +166,169 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.warn("coupon.js: DOMContentLoaded pre-sync error:", e);
   }
 
-  // レンダリング実行（この中でローディングが非表示になる）
-  renderCoupons();
+  // confirm ボタン（クーポン使用確定）の登録（堅牢に）
+  try {
+    const confirmBtn = document.querySelector(".confirm-use-button");
+    if (confirmBtn) {
+      confirmBtn.addEventListener("click", async () => {
+        try {
+          const userId = localStorage.getItem("userId") || "未設定";
+          const couponModal = document.getElementById("coupon-modal");
+          const modalStoreId = couponModal && couponModal.dataset && couponModal.dataset.storeId ? couponModal.dataset.storeId : null;
+
+          // 優先: modal.dataset.storeId -> currentStore -> abort
+          let storeId = modalStoreId || (currentStore && (currentStore.storeId || currentStore.id)) || null;
+          if (!storeId) {
+            console.warn("confirm-use: no storeId found; aborting");
+            if (couponModal) couponModal.classList.add("hidden");
+            return;
+          }
+
+          // 解決: coupon, store 情報（より確実に）
+          const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
+          const restaurants = JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]") || [];
+          const coupon = coupons.find(c => c && (c.storeId === storeId || c.id === storeId || (c.baseId && c.baseId === storeId.split("-")[0])));
+          const store = restaurants.find(r => r && (r.storeId === storeId || r.id === storeId || (r.baseId && r.baseId === storeId.split("-")[0]))) || null;
+
+          // 保険: currentStore を更新
+          if (store) currentStore = store;
+
+          const storeName = (coupon && coupon.storeName) ? coupon.storeName : (store && store.name) ? store.name : "未設定";
+          const prizeType = (coupon && coupon.type) ? coupon.type : (store && store.prizeType) ? store.prizeType : "未設定";
+          const salonId = (store && store.salonId) ? store.salonId : (localStorage.getItem("salonId") || "未設定");
+
+          console.log("confirm-use: sending (resolved) ->", { userId, storeId, storeName, prizeType, salonId });
+
+          // mark -> then send usage log
+          try {
+            const markRes = await markCouponUsedAndSync(storeId);
+            console.log("markCouponUsedAndSync result:", markRes);
+
+            // usage ログ送信（失敗しても UI は続行）
+            try {
+              const sendRes = await sendUsageLog({ userId, storeId, storeName, prizeType, salonId });
+              console.log("sendUsageLog result:", sendRes);
+            } catch (e) {
+              console.warn("sendUsageLog failed after mark:", e);
+            }
+          } catch (err) {
+            console.warn("confirm-use: markCouponUsedAndSync failed:", err);
+          }
+
+          // UI cleanup + re-render
+          try { if (couponModal) couponModal.classList.add("hidden"); } catch(e){}
+          const keyInput = document.getElementById("key-input");
+          if (keyInput) keyInput.value = "";
+
+          try { renderCoupons(); } catch (e) { console.warn("renderCoupons after confirm failed:", e); }
+          try { if (typeof window.renderRestaurants === "function") window.renderRestaurants(); } catch(e) { console.warn("renderRestaurants after confirm failed:", e); }
+
+          try { showThankYou && showThankYou(() => { try { renderCoupons(); } catch(e){} }); } catch(e){}
+        } catch (err) {
+          console.error("confirm-use handler unexpected error:", err);
+        }
+      });
+    } else {
+      console.warn("confirm-use-button not found");
+    }
+  } catch (e) {
+    console.warn("confirm button registration failed:", e);
+  }
+
+  // 初回描画
+  try { renderCoupons(); } catch (e) { console.warn("initial renderCoupons failed:", e); }
 });
 
-
-
+// helper: サロンID解決（必要ならマップ）
 function getSalonId(prizeType) {
-  // prizeType と salon の紐付けがある場合はここでマップする
-  const map = {
-    "normal": "salon001",
-    "rare": "salon002",
-    "last-one": "salon003"
-  };
+  const map = { "normal": "salon001", "rare": "salon002", "last-one": "salon003" };
   return map[prizeType] || localStorage.getItem("salonId") || "salon000";
 }
 
+// openModal（restaurants の店舗詳細モーダル）
+let currentPhotoIndex = 0;
+let currentStore = null;
+
 function openModal(store) {
+  if (!store) return;
   if (!store.unlocked) {
     alert("この店舗はまだアンロックされていません！");
     return;
   }
   currentStore = store;
 
-  // 追加：モーダル表示時に現在の店舗情報を保持する
   const modal = document.getElementById("restaurant-modal");
-  if (!modal) return;
-  modal.querySelector(".modal-store-name").textContent = store.name || "店舗名";
-  modal.querySelector("#modal-photo").src = (store.images && store.images[0]) ? store.images[0] : "images/sample1.jpg";
-  modal.querySelector(".modal-town").textContent = `📍 所在地：${store.town || "未設定"}`;
-  modal.querySelector(".modal-hours").textContent = `🕒 営業時間：${store.hours || "未設定"}`;
-  modal.querySelector(".map-button").href = store.mapUrl;
-  modal.querySelector(".video-button").addEventListener("click", (e) => {
-    e.preventDefault();
-    playFullScreenVideo(store.videoUrl);
-  });
-  const hpButton = modal.querySelector(".hp-button");
-  const hpBadge = modal.querySelector(".hp-badge");
-
-  if (store.hpUrl) {
-    hpButton.href = store.hpUrl;
-    hpButton.style.display = "inline-block";
-    hpButton.setAttribute("target", "_blank");
-    hpBadge.style.display = "none";
-  } else {
-    hpButton.href = "#";
-    hpButton.style.display = "none";
-    hpBadge.style.display = "inline-block";
+  if (!modal) {
+    // fallback: play video directly if available
+    if (store.videoUrl) {
+      playFullScreenVideo(store.videoUrl);
+    }
+    return;
   }
 
-  currentStore = store;
+  modal.querySelector(".modal-store-name").textContent = store.name || "店舗名";
+  const photoEl = modal.querySelector("#modal-photo");
+  if (photoEl) photoEl.src = (store.images && store.images[0]) ? store.images[0] : "images/sample1.jpg";
+  const townEl = modal.querySelector(".modal-town");
+  if (townEl) townEl.textContent = `📍 所在地：${store.town || "未設定"}`;
+  const hoursEl = modal.querySelector(".modal-hours");
+  if (hoursEl) hoursEl.textContent = `🕒 営業時間：${store.hours || "未設定"}`;
+  const mapButton = modal.querySelector(".map-button");
+  if (mapButton) mapButton.href = store.mapUrl || "#";
+  const videoButton = modal.querySelector(".video-button");
+  if (videoButton) {
+    videoButton.onclick = (e) => { e.preventDefault(); if (store.videoUrl) playFullScreenVideo(store.videoUrl); };
+  }
+  const hpButton = modal.querySelector(".hp-button");
+  const hpBadge = modal.querySelector(".hp-badge");
+  if (hpButton) {
+    if (store.hpUrl) { hpButton.href = store.hpUrl; hpButton.style.display = "inline-block"; hpBadge && (hpBadge.style.display = "none"); }
+    else { hpButton.href = "#"; hpButton.style.display = "none"; hpBadge && (hpBadge.style.display = "inline-block"); }
+  }
+
   currentPhotoIndex = 0;
   updatePhoto(store.images);
-
   modal.classList.remove("hidden");
 }
 
+function playFullScreenVideo(url) {
+  if (!url) { alert("動画URLが登録されていません"); return; }
+  const existing = document.querySelector(".fullscreen-video");
+  if (existing) existing.remove();
+  const container = document.createElement("div");
+  container.className = "fullscreen-video";
+  container.innerHTML = `<video src="${url}" controls autoplay style="width:100%;height:100%;object-fit:contain;"></video><button class="close-video-button">×</button>`;
+  document.body.appendChild(container);
+  const v = container.querySelector("video");
+  const btn = container.querySelector(".close-video-button");
+  btn.addEventListener("click", () => { try { v.pause(); } catch(e){} container.remove(); });
+  v.addEventListener("ended", () => container.remove());
+}
 
-// sendVideoLog と sendUsageLog を統一・詳細ログ出力
+// logging helper (Apps Script expects form-urlencoded 'data=')
 function postLog(payload) {
-  // viewed イベントはガチャ起点のものだけ残す（modal 等からの再生は記録しない）
-  if (payload && payload.eventType === "viewed" && payload.eventSource !== "gacha") {
-    console.log("postLog: Skipping 'viewed' log because eventSource is not 'gacha':", payload.eventSource);
+  if (!LOG_URL) {
+    console.warn("postLog: LOG_URL not configured — skipping", payload);
     return Promise.resolve({ skipped: true });
   }
-
+  // allow Apps Script to filter viewed events from non-gacha sources
+  if (payload && payload.eventType === "viewed" && payload.eventSource && payload.eventSource !== "gacha") {
+    console.log("postLog: skipping viewed (not gacha):", payload.eventSource);
+    return Promise.resolve({ skipped: true });
+  }
   return fetch(LOG_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
     body: "data=" + encodeURIComponent(JSON.stringify(payload))
-  })
-  .then(async res => {
-    const text = await res.text().catch(() => "");
-    console.log("postLog: status=", res.status, "ok=", res.ok);
-    console.log("postLog: response text:", text);
-    try { return JSON.parse(text); } catch (e) { return { raw: text, status: res.status }; }
+  }).then(async r => {
+    const text = await r.text().catch(() => "");
+    try { return JSON.parse(text); } catch (e) { return { raw: text, status: r.status }; }
   });
 }
 
-// 変更: sendUsageLog/sendVideoLog は postLog を return して Promise を返すようにする
-function sendVideoLog({ userId, storeId, storeName, prizeType, salonId, eventSource }) {
-  const payload = {
-    timestamp: new Date().toISOString(),
-    userId, storeId, storeName, prizeType, salonId,
-    eventType: "viewed",
-    eventSource: eventSource || null,
-    gachaCompleted: localStorage.getItem("gachaCompleted") === "true"
-  };
-  return postLog(payload)
-    .then(json => { console.log("sendVideoLog ok:", json); return json; })
-    .catch(err => { console.error("sendVideoLog error:", err); throw err; });
-}
-
 function sendUsageLog({ userId, storeId, storeName, prizeType, salonId }) {
-  const payload = {
-    timestamp: new Date().toISOString(),
-    userId, storeId, storeName, prizeType, salonId,
-    eventType: "used",
-    gachaCompleted: localStorage.getItem("gachaCompleted") === "true"
-  };
-
-  // --- 重複送信対策（簡易デデュープ） ---
+  const payload = { timestamp: new Date().toISOString(), userId, storeId, storeName, prizeType, salonId, eventType: "used", gachaCompleted: localStorage.getItem("gachaCompleted") === "true" };
+  // simple dedupe
   try {
     const key = 'lastSentLog';
     const last = JSON.parse(sessionStorage.getItem(key) || "{}");
@@ -275,245 +344,13 @@ function sendUsageLog({ userId, storeId, storeName, prizeType, salonId }) {
   }
 
   console.log("sendUsageLog: payload ->", payload);
-  console.trace(); // 呼び出し元追跡用
-  return postLog(payload)
-    .then(json => { console.log("sendUsageLog ok:", json); return json; })
-    .catch(err => { console.error("sendUsageLog error:", err); throw err; });
+  return postLog(payload).then(res => { console.log("sendUsageLog ok:", res); return res; }).catch(err => { console.error("sendUsageLog error:", err); throw err; });
 }
-
-function playFullScreenVideo(videoUrl) {
-  if (!videoUrl) {
-    alert("動画URLが登録されていません");
-    return;
-  }
-
-  // ✅ 視聴ログ送信
-  if (currentStore) {
-    sendVideoLog({
-      userId: localStorage.getItem("userId"),
-      storeId: currentStore.storeId,
-      storeName: currentStore.name,
-      prizeType: currentStore.prizeType || "unknown",
-      salonId: getSalonId(currentStore.prizeType || "unknown")
-    });
-  }
-
-  // 既存の動画があれば削除
-  const existing = document.querySelector(".fullscreen-video");
-  if (existing) existing.remove();
-
-  const videoContainer = document.createElement("div");
-  videoContainer.className = "fullscreen-video";
-  videoContainer.innerHTML = `
-    <video src="${videoUrl}" controls autoplay style="width: 100%; height: 100%; object-fit: contain;"></video>
-    <button class="close-video-button">×</button>
-  `;
-  document.body.appendChild(videoContainer);
-
-  const videoElement = videoContainer.querySelector("video");
-  const closeButton = videoContainer.querySelector(".close-video-button");
-
-  closeButton.addEventListener("click", () => {
-    videoElement.pause();
-    videoContainer.remove();
-  });
-
-  videoElement.addEventListener("ended", () => {
-    videoContainer.remove();
-  });
-}
-
-// 既にある宣言（もしなければ追加）
-let currentPhotoIndex = 0;
-let currentStore = null;
-
-function updatePhoto(images) {
-  const photo = document.getElementById("modal-photo");
-  if (!images || images.length === 0) {
-    photo.src = "images/sample1.jpg"; // 代替画像
-    return;
-  }
-  photo.src = images[currentPhotoIndex];
-}
-
-document.getElementById("prev-photo").addEventListener("click", (e) => {
-  e.stopPropagation();
-  if (!currentStore || !currentStore.images) return;
-  currentPhotoIndex = (currentPhotoIndex - 1 + currentStore.images.length) % currentStore.images.length;
-  updatePhoto(currentStore.images);
-});
-
-document.getElementById("next-photo").addEventListener("click", (e) => {
-  e.stopPropagation();
-  if (!currentStore || !currentStore.images) return;
-  currentPhotoIndex = (currentPhotoIndex + 1) % currentStore.images.length;
-  updatePhoto(currentStore.images);
-});
-
-let touchStartX = 0;
-
-const photoElement = document.getElementById("modal-photo");
-
-photoElement.addEventListener("touchstart", (e) => {
-  touchStartX = e.changedTouches[0].screenX;
-});
-
-photoElement.addEventListener("touchend", (e) => {
-  const touchEndX = e.changedTouches[0].screenX;
-  const deltaX = touchEndX - touchStartX;
-
-  if (!currentStore || !currentStore.images) return;
-
-  if (deltaX > 50) {
-    // 左スワイプ → 前の写真
-    currentPhotoIndex = (currentPhotoIndex - 1 + currentStore.images.length) % currentStore.images.length;
-    updatePhoto(currentStore.images);
-  } else if (deltaX < -50) {
-    // 右スワイプ → 次の写真
-    currentPhotoIndex = (currentPhotoIndex + 1) % currentStore.images.length;
-    updatePhoto(currentStore.images);
-  }
-});
-
-document.querySelector(".close-button").addEventListener("click", () => {
-  document.getElementById("restaurant-modal").classList.add("hidden");
-});
-
-document.querySelector("#coupon-modal .close-button").addEventListener("click", () => {
-  document.getElementById("coupon-modal").classList.add("hidden");
-});
-
-function showThankYou(callback) {
-  const thankYou = document.createElement("div");
-  thankYou.textContent = "🎉 Thank You!";
-  thankYou.style.position = "fixed";
-  thankYou.style.top = "50%";
-  thankYou.style.left = "50%";
-  thankYou.style.transform = "translate(-50%, -50%)";
-  thankYou.style.fontSize = "2rem";
-  thankYou.style.background = "#ff6f61";
-  thankYou.style.color = "white";
-  thankYou.style.padding = "20px 40px";
-  thankYou.style.borderRadius = "12px";
-  thankYou.style.zIndex = "1000";
-  thankYou.style.boxShadow = "0 0 10px rgba(0,0,0,0.3)";
-  document.body.appendChild(thankYou);
-
-  setTimeout(() => {
-    thankYou.remove();
-    if (callback) callback();
-  }, 1500);
-}
-
-// openModal(store) の中で currentStore を確実にセットする（openModal の定義内の該当箇所を置換／追記）
-function openModal(store) {
-  if (!store.unlocked) {
-    alert("この店舗はまだアンロックされていません！");
-    return;
-  }
-  currentStore = store;
-
-  // 追加：モーダル表示時に現在の店舗情報を保持する
-  const modal = document.getElementById("restaurant-modal");
-  if (!modal) return;
-  modal.querySelector(".modal-store-name").textContent = store.name || "店舗名";
-  modal.querySelector("#modal-photo").src = (store.images && store.images[0]) ? store.images[0] : "images/sample1.jpg";
-  modal.querySelector(".modal-town").textContent = `📍 所在地：${store.town || "未設定"}`;
-  modal.querySelector(".modal-hours").textContent = `🕒 営業時間：${store.hours || "未設定"}`;
-  modal.querySelector(".map-button").href = store.mapUrl;
-  modal.querySelector(".video-button").addEventListener("click", (e) => {
-    e.preventDefault();
-    playFullScreenVideo(store.videoUrl);
-  });
-  const hpButton = modal.querySelector(".hp-button");
-  const hpBadge = modal.querySelector(".hp-badge");
-
-  if (store.hpUrl) {
-    hpButton.href = store.hpUrl;
-    hpButton.style.display = "inline-block";
-    hpButton.setAttribute("target", "_blank");
-    hpBadge.style.display = "none";
-  } else {
-    hpButton.href = "#";
-    hpButton.style.display = "none";
-    hpBadge.style.display = "inline-block";
-  }
-
-  currentStore = store;
-  currentPhotoIndex = 0;
-  updatePhoto(store.images);
-
-  modal.classList.remove("hidden");
-}
-
-// 確定ボタン（クーポン使用）のハンドラを確実に currentStore を参照するように登録
-document.addEventListener("DOMContentLoaded", () => {
-  const confirmBtn = document.querySelector(".confirm-use-button");
-  if (confirmBtn) {
-    confirmBtn.addEventListener("click", () => {
-      const userId = localStorage.getItem("userId") || "未設定";
-
-      // currentStore がセットされているか確認して値を決定
-      const salonId = (currentStore && currentStore.salonId) ? currentStore.salonId : (localStorage.getItem("salonId") || "未設定");
-      const storeId = (currentStore && (currentStore.storeId || currentStore.id)) ? (currentStore.storeId || currentStore.id) : "未設定";
-      const storeName = (currentStore && currentStore.name) ? currentStore.name : "未設定";
-      const prizeType = (currentStore && currentStore.prizeType) ? currentStore.prizeType : "未設定";
-
-      console.log("confirm-use: sending usage log", { userId, salonId, storeId, storeName, prizeType });
-
-      markCouponUsedAndSync(storeId)
-        .then(() => {
-          // usage ログはそのあと送る（失敗しても UI は続行）
-          return sendUsageLog({ userId, storeId, storeName, prizeType, salonId }).catch(e => {
-            console.warn("sendUsageLog after mark failed:", e);
-            return null;
-          });
-        })
-        .then(() => {
-          // モーダルを閉じてキーをクリア
-          const couponModal = document.getElementById("coupon-modal");
-          if (couponModal) couponModal.classList.add("hidden");
-          const keyInput = document.getElementById("key-input");
-          if (keyInput) keyInput.value = "";
-
-          // まず画面を更新（即時反映）
-          try { renderCoupons(); } catch (e) { /* ignore */ }
-
-          // restaurants の一覧が同タブで開いていれば再描画する（存在する場合のみ）
-          try {
-            if (typeof window.renderRestaurants === "function") {
-              window.renderRestaurants();
-            }
-          } catch (e) {
-            console.warn("renderRestaurants call failed:", e);
-          }
-
-          // 見た目のフィードバックを表示（Thank You）
-          try {
-            if (typeof showThankYou === "function") {
-              showThankYou(() => {
-                try { renderCoupons(); } catch(e) {}
-              });
-            }
-          } catch (e) { /* ignore */ }
-        })
-        .catch(err => {
-          console.warn("confirm click: sync failed, applying local fallback:", err);
-          const couponModal = document.getElementById("coupon-modal");
-          if (couponModal) couponModal.classList.add("hidden");
-          const keyInput = document.getElementById("key-input");
-          if (keyInput) keyInput.value = "";
-          try { renderCoupons(); } catch(e) {}
-        });
-    });
-  } else {
-    console.warn("confirm-use-button not found");
-  }
-});
 
 /**
- * クーポンをローカルで「使用済み」にしてサーバへ同期する
- * couponId は myCoupons_{userId} 配列内の一意の識別子（storeId 等）を想定
+ * markCouponUsedAndSync
+ * - couponIdentifier は storeId（例: ramen001-2）を想定
+ * - ローカル更新 → render → dispatch('couponsChanged') → サーバ同期（安全ラッパー）
  */
 function markCouponUsedAndSync(couponIdentifier) {
   try {
@@ -527,7 +364,7 @@ function markCouponUsedAndSync(couponIdentifier) {
     const restaurants = JSON.parse(localStorage.getItem(restaurantsKey) || "[]");
 
     let found = false;
-    let matchedIds = []; // 使用されたクーポンの各種候補IDを収集
+    let matchedIds = [];
 
     for (let i = 0; i < coupons.length; i++) {
       const c = coupons[i];
@@ -539,12 +376,11 @@ function markCouponUsedAndSync(couponIdentifier) {
           coupons[i] = c;
           found = true;
         }
-        matchedIds = cIds.slice(); // マッチングに使う ID 候補を保持
+        matchedIds = cIds.slice();
         break;
       }
     }
 
-    // restaurants 側も多キーで一致させて反映する
     if (matchedIds.length > 0) {
       for (let j = 0; j < restaurants.length; j++) {
         const s = restaurants[j];
@@ -553,54 +389,40 @@ function markCouponUsedAndSync(couponIdentifier) {
         if (intersects) {
           s.couponUsed = true;
           restaurants[j] = s;
-          // ここで break しない（念のため複数のエントリに反映）
         }
       }
     }
 
-    // ローカル保存
+    // ローカル保存 + 再描画 + イベント通知（即時反映）
     localStorage.setItem(couponsKey, JSON.stringify(coupons));
     localStorage.setItem(restaurantsKey, JSON.stringify(restaurants));
-    try { renderCoupons(); } catch(e) {}
+    try { renderCoupons(); } catch(e) { console.warn("renderCoupons after mark failed:", e); }
     try { if (typeof window.renderRestaurants === "function") window.renderRestaurants(); } catch(e){}
 
-    // ここを追加: 同期用のカスタムイベント（restaurants.js が購読）
-    try { window.dispatchEvent(new Event('couponsChanged')); } catch(e) {}
+    try { window.dispatchEvent(new Event('couponsChanged')); } catch(e) { console.warn('dispatch couponsChanged failed', e); }
 
-    // ここからサーバ同期ロジックを安全ラッパー経由に変更します
-    const snapshot = {
-      coupons: coupons,
-      restaurantData: restaurants,
-      gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}")
-    };
-
-    // 変更前: 直接 window.stateSync を参照していたため、ダミー stateSync があると no-op になっていた
-    // 変更後: requestSaveSnapshotSafe を経由して必ずフォールバックまで到達できるようにする
-    return requestSaveSnapshotSafe(snapshot, true)
-      .then(res => ({ ok: true, applied: found, savedOrQueued: res }))
-      .catch(err => {
-        console.warn("markCouponUsedAndSync: requestSaveSnapshotSafe failed:", err);
-        return { ok: true, applied: found, error: String(err) };
-      });
+    // サーバ同期（安全ラッパー）
+    const snapshot = { coupons, restaurantData: restaurants, gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}") };
+    return requestSaveSnapshotSafe(snapshot, true).then(res => ({ ok: true, applied: found, savedOrQueued: res })).catch(err => {
+      console.warn("markCouponUsedAndSync: requestSaveSnapshotSafe failed:", err);
+      return { ok: true, applied: found, error: String(err) };
+    });
   } catch (err) {
     console.warn("markCouponUsedAndSync failed:", err);
     return Promise.reject(err);
   }
 }
 
-// ---- START: enhanced requestSaveSnapshotSafe ----
+// ---- START: requestSaveSnapshotSafe (既存ロジックのまま、デバッグログ強化) ----
 function requestSaveSnapshotSafe(snapshot, immediate) {
-  // グローバルフラグの初期化（他スクリプトが参照できるように window に置く）
   window.__applyingServerState = window.__applyingServerState || false;
   window.__lastSavedSnapshotJson = window.__lastSavedSnapshotJson || null;
 
-  // 1) サーバ適用中は保存を行わない（安全ガード）
   if (window.__applyingServerState) {
     console.log('requestSaveSnapshotSafe: skipping save because applyingServerState is true');
     return Promise.resolve({ skipped: true, reason: 'applyingServerState' });
   }
 
-  // 2) 差分チェック: 直前に保存した JSON と同じならスキップ（不必要な POST を削減）
   let snapshotJson = null;
   try {
     snapshotJson = JSON.stringify(snapshot);
@@ -608,11 +430,9 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
       return Promise.resolve({ skipped: true, reason: 'no-change' });
     }
   } catch (e) {
-    // stringify に失敗したら差分チェックは諦めて続行
-    console.warn('requestSaveSnapshotSafe: stringify failed, proceeding with save', e);
+    console.warn('requestSaveSnapshotSafe: stringify failed, proceeding', e);
   }
 
-  // 3) 実際の保存処理（既存の stateSync / saveGachaStateToServer / 最終フォールバックを利用）
   const doSave = () => {
     if (window.stateSync && typeof window.stateSync.requestSave === 'function') {
       try {
@@ -620,7 +440,6 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
           return window.stateSync.flushNow();
         }
         window.stateSync.requestSave(snapshot);
-        // stateSync.requestSave は同期キュー登録の可能性があるので Promise で成功を返す
         return Promise.resolve({ queued: true });
       } catch (e) {
         console.warn('stateSync.requestSave failed, falling back', e);
@@ -635,7 +454,6 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
       }
     }
 
-    // 最終フォールバック: 直接 POST
     try {
       const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbwk02U0POEPJfGWzmyn2TqzIpyX10-0WyfTKITw6gB8ceJa9vT_U1-EnEzg5vOAVjoU/exec";
       const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
@@ -646,16 +464,13 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
         body: "data=" + encodeURIComponent(JSON.stringify(payload))
-      })
-      .then(r => r.text())
-      .then(t => { try { return JSON.parse(t); } catch(e){ return { raw: t }; } });
+      }).then(r => r.text()).then(t => { try { return JSON.parse(t); } catch(e){ return { raw: t }; } });
     } catch (e) {
       return Promise.reject(e);
     }
   };
 
   return doSave().then(res => {
-    // 成功（または queued）であれば lastSavedSnapshotJson を更新
     try { if (snapshotJson) window.__lastSavedSnapshotJson = snapshotJson; } catch(e){}
     return res;
   }).catch(err => {
@@ -663,6 +478,33 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
     throw err;
   });
 }
-// expose
 window.requestSaveSnapshotSafe = requestSaveSnapshotSafe;
-// ---- END: enhanced requestSaveSnapshotSafe ----
+// ---- END: requestSaveSnapshotSafe ----
+
+// 小さな UI ヘルパ（写真ナビなど）
+function updatePhoto(images) {
+  const photo = document.getElementById("modal-photo");
+  if (!photo) return;
+  if (!images || images.length === 0) {
+    photo.src = "images/sample1.jpg";
+    return;
+  }
+  photo.src = images[currentPhotoIndex] || images[0];
+}
+
+// モーダルの閉じボタンバインド（存在すれば）
+(function bindModalClose() {
+  const close = document.querySelector(".close-button");
+  if (close) close.addEventListener("click", () => {
+    const modal = document.getElementById("restaurant-modal");
+    if (modal) modal.classList.add("hidden");
+  });
+})();
+
+(function bindCouponModalClose() {
+  const close = document.querySelector("#coupon-modal .close-button");
+  if (close) close.addEventListener("click", () => {
+    const modal = document.getElementById("coupon-modal");
+    if (modal) modal.classList.add("hidden");
+  });
+})();
