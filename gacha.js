@@ -72,6 +72,7 @@ const baseRestaurantData = [
     hpUrl: "https://ramen1.example.com",
     unlocked: false,
     couponUsed: false,
+    key: "11111",
     coupons: {
       normal: { discount: 200, conditions: ["1000円以上のご注文", "店内飲食限定"], expiry: "2025/12/31" },
       rare: { discount: 500, conditions: ["1500円以上のご注文", "店内飲食限定"], expiry: "2025/12/31" },
@@ -90,6 +91,7 @@ const baseRestaurantData = [
     hpUrl: "",
     unlocked: false,
     couponUsed: false,
+    key: "22222",
     coupons: {
       normal: { discount: 300, conditions: ["2000円以上のご注文", "店内飲食限定"], expiry: "2025/12/31" },
       rare: { discount: 600, conditions: ["飲み放題付きコース"], expiry: "2025/12/31" },
@@ -108,6 +110,7 @@ const baseRestaurantData = [
     hpUrl: "",
     unlocked: false,
     couponUsed: false,
+    key: "33333",
     coupons: {
       normal: { discount: 250, conditions: ["ランチ限定", "店内飲食限定"], expiry: "2025/12/31" },
       rare: { discount: 700, conditions: ["握りセット注文"], expiry: "2025/12/31" },
@@ -126,6 +129,7 @@ const baseRestaurantData = [
     hpUrl: "https://cafemint.example.com",
     unlocked: false,
     couponUsed: false,
+    key: "44444",
     coupons: {
       normal: { discount: 150, conditions: ["ドリンク注文必須", "店内飲食限定"], expiry: "2025/12/31" },
       rare: { discount: 400, conditions: ["ランチセット注文"], expiry: "2025/12/31" },
@@ -144,6 +148,7 @@ const baseRestaurantData = [
     hpUrl: "",
     unlocked: false,
     couponUsed: false,
+    key: "55555",
     coupons: {
       normal: { discount: 100, conditions: ["パン3個以上購入", "店内飲食限定"], expiry: "2025/12/31" },
       rare: { discount: 300, conditions: ["セットメニュー購入"], expiry: "2025/12/31" },
@@ -162,6 +167,7 @@ const baseRestaurantData = [
     hpUrl: "https://marina.example.com",
     unlocked: false,
     couponUsed: false,
+    key: "66666",
     coupons: {
       normal: { discount: 200, conditions: ["パスタ注文必須", "店内飲食限定"], expiry: "2025/12/31" },
       rare: { discount: 500, conditions: ["前菜＋パスタセット"], expiry: "2025/12/31" },
@@ -180,6 +186,7 @@ const baseRestaurantData = [
     hpUrl: "",
     unlocked: false,
     couponUsed: false,
+    key: "77777",
     coupons: {
       normal: { discount: 180, conditions: ["ドリンク2杯以上注文", "店内飲食限定"], expiry: "2025/12/31" },
       rare: { discount: 450, conditions: ["カクテルセット注文"], expiry: "2025/12/31" },
@@ -198,6 +205,7 @@ const baseRestaurantData = [
     hpUrl: "",
     unlocked: false,
     couponUsed: false,
+    key: "88888",
     coupons: {
       normal: { discount: 200, conditions: ["1000円以上注文", "店内飲食限定"], expiry: "2025/12/31" },
       rare: { discount: 500, conditions: ["鉄板焼きセットを注文"], expiry: "2025/12/31" },
@@ -216,6 +224,7 @@ const baseRestaurantData = [
     hpUrl: "",
     unlocked: false,
     couponUsed: false,
+    key: "99999",
     coupons: {
       normal: { discount: 150, conditions: ["定食注文必須", "店内飲食限定"], expiry: "2025/12/31" },
       rare: { discount: 400, conditions: ["日替わり定食注文"], expiry: "2025/12/31" },
@@ -234,6 +243,7 @@ const baseRestaurantData = [
     hpUrl: "https://sakura.example.com",
     unlocked: false,
     couponUsed: false,
+    key: "11112",
     coupons: {
       normal: { discount: 200, conditions: ["とんかつ定食注文", "店内飲食限定"], expiry: "2025/12/31" },
       rare: { discount: 500, conditions: ["ロースかつ＋ドリンクセット"], expiry: "2025/12/31" },
@@ -242,26 +252,72 @@ const baseRestaurantData = [
   }
 ];
 
-const prizeTypes = ["normal", "rare", "last-one"];
+// --- START: automatically assign 5-digit keys to each base and build initialRestaurantData ---
+baseRestaurantData.forEach(base => {
+  try {
+    if (!base.key) {
+      // 10000〜99999 のランダム5桁（文字列で保持）
+      base.key = String(Math.floor(10000 + Math.random() * 90000));
+    }
+  } catch (e) {
+    console.warn("assign base.key failed for", base && base.baseId, e);
+  }
+});
 
 window.initialRestaurantData = baseRestaurantData.flatMap(base => {
-  return prizeTypes.map((type, index) => ({
-    storeId: `${base.baseId}-${index + 1}`,         // 例：ramen001-1
-    baseId: base.baseId,                             // ✅ 明示的に追加
-    prizeType: type,                                 // normal / rare / last-one
-    name: base.name,
-    genre: base.genre,
-    town: base.town,
-    images: base.images,
-    hours: base.hours,
-    mapUrl: base.mapUrl,
-    videoUrl: base.videoUrl,
-    hpUrl: base.hpUrl,
-    unlocked: false,
-    couponUsed: false,
-    coupon: base.coupons[type]
-  }));
+  const variants = Number(base.variants || 1);
+  const out = [];
+  for (let i = 1; i <= variants; i++) {
+    const storeId = `${base.baseId}-${i}`;
+    out.push({
+      storeId: storeId,
+      id: storeId,
+      baseId: base.baseId,
+      name: (base.name || "") + (variants > 1 ? ` ${i}` : ""),
+      town: base.town || "",
+      prizeType: base.prizeType || (base.prize || "normal"),
+      coupon: base.coupon || null,
+      unlocked: !!base.unlocked,
+      images: base.images || [],
+      hpUrl: base.hpUrl || null,
+      mapUrl: base.mapUrl || null,
+      // base に設定した key を各店舗に渡す
+      key: base.key
+    });
+  }
+  return out;
 });
+
+// マイグレーション: 既存の localStorage の restaurantData_{userId} に key を注入（あれば）
+(function migrateRestaurantKeys() {
+  try {
+    const userId = localStorage.getItem("userId");
+    if (!userId) return;
+    const storageKey = `restaurantData_${userId}`;
+    const existing = JSON.parse(localStorage.getItem(storageKey) || "[]");
+    if (!Array.isArray(existing) || existing.length === 0) return;
+
+    const baseKeyMap = {};
+    baseRestaurantData.forEach(b => { if (b && b.baseId) baseKeyMap[b.baseId] = b.key; });
+
+    let changed = false;
+    const updated = existing.map(s => {
+      if (s && s.baseId && baseKeyMap[s.baseId] && String(s.key) !== String(baseKeyMap[s.baseId])) {
+        s.key = baseKeyMap[s.baseId];
+        changed = true;
+      }
+      return s;
+    });
+
+    if (changed) {
+      localStorage.setItem(storageKey, JSON.stringify(updated));
+      console.log("migrateRestaurantKeys: injected keys into", storageKey);
+    }
+  } catch (e) {
+    console.warn("migrateRestaurantKeys failed:", e);
+  }
+})();
+// --- END: key assignment + initialRestaurantData + migration ---
 
 // --- 追加: ページ初期化（UI更新をここで一元化） ---
 function initGachaUI() {

@@ -1,6 +1,6 @@
-// coupon.js — 改良版（クーポン使用の確実な反映 + 賞種ラベル表示）
+// coupon.js — 完全版（賞種ラベル + 店舗別使用キー検証 + showThankYou 表示 + 外側エラーメッセージ）
 
-// ページ単位で window.LOG_URL を設定できるようにする（HTML 側で上書き可能）
+// ページ単位で上書き可能なロギング先
 const LOG_URL = (typeof window !== "undefined" && window.LOG_URL) ? window.LOG_URL : "https://script.google.com/macros/s/AKfycbwk02U0POEPJfGWzmyn2TqzIpyX10-0WyfTKITw6gB8ceJa9vT_U1-EnEzg5vOAVjoU/exec";
 
 function prizeLabel(type) {
@@ -12,6 +12,79 @@ function prizeLabel(type) {
   }
 }
 
+// --- Helper: 外側に表示するキーエラーメッセージ管理 ---
+let __outsideKeyErrorResizeHandler = null;
+function showOutsideKeyError(message) {
+  try {
+    hideOutsideKeyError(); // まず既存を消す
+    const modal = document.getElementById("coupon-modal");
+    const el = document.createElement("div");
+    el.id = "outside-key-error";
+    el.textContent = message;
+    // 赤文字のみ、背景やボーダーは不要
+    el.style.position = "fixed";
+    el.style.color = "#e53935";
+    el.style.background = "transparent";
+    el.style.padding = "4px 0";
+    el.style.border = "none";
+    el.style.zIndex = "2000";
+    el.style.fontWeight = "600";
+    el.style.whiteSpace = "nowrap";
+    el.style.pointerEvents = "none"; // クリックを妨げない
+    document.body.appendChild(el);
+
+    function position() {
+      const m = modal || document.getElementById("coupon-modal");
+      const rect = m ? m.getBoundingClientRect() : { left: window.innerWidth / 2, width: 0, bottom: window.innerHeight * 0.75, top: window.innerHeight * 0.75 };
+      // 要素のサイズが確定してから位置を計算する
+      const ew = el.offsetWidth;
+      const eh = el.offsetHeight;
+
+      // 左位置はモーダル中央に揃える（画面内に収める）
+      let left = rect.left + (rect.width / 2) - (ew / 2);
+      left = Math.max(8, Math.min(left, window.innerWidth - ew - 8));
+
+      // まずモーダルの直下に表示、はみ出す場合はモーダルの上に配置
+      let top = rect.bottom + 8; // 下側 8px マージン
+      if (top + eh + 8 > window.innerHeight) {
+        // 画面下にはみ出す -> 上側に表示
+        top = rect.top - eh - 8;
+        // それでも上にはみ出すなら画面下寄せにする
+        if (top < 8) {
+          top = Math.max(8, window.innerHeight - eh - 8);
+        }
+      }
+
+      el.style.left = `${left}px`;
+      el.style.top = `${top}px`;
+    }
+
+    // DOM 描画後に正確な寸法で配置
+    requestAnimationFrame(() => {
+      position();
+      __outsideKeyErrorResizeHandler = () => position();
+      window.addEventListener("resize", __outsideKeyErrorResizeHandler);
+      window.addEventListener("scroll", __outsideKeyErrorResizeHandler, { passive: true });
+    });
+  } catch (e) {
+    console.warn("showOutsideKeyError failed:", e);
+  }
+}
+function hideOutsideKeyError() {
+  try {
+    const existing = document.getElementById("outside-key-error");
+    if (existing) existing.remove();
+    if (__outsideKeyErrorResizeHandler) {
+      window.removeEventListener("resize", __outsideKeyErrorResizeHandler);
+      window.removeEventListener("scroll", __outsideKeyErrorResizeHandler);
+      __outsideKeyErrorResizeHandler = null;
+    }
+  } catch (e) {
+    console.warn("hideOutsideKeyError failed:", e);
+  }
+}
+
+// --- renderCoupons: クーポン一覧描画（使う・紹介ボタンのセット含む） ---
 function renderCoupons() {
   const container = document.getElementById("coupon-container");
   if (!container) return;
@@ -20,10 +93,10 @@ function renderCoupons() {
   const userId = localStorage.getItem("userId");
   const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
 
-  // 未使用を先に（数値化したソートで安定）
-  const sortedCoupons = coupons.slice().sort((a, b) => Number(!!a.used) - Number(!!b.used));
+  // 未使用を先に表示（used フラグが true のものは後へ）
+  const sorted = coupons.slice().sort((a, b) => Number(!!a.used) - Number(!!b.used));
 
-  sortedCoupons.forEach(coupon => {
+  sorted.forEach(coupon => {
     const card = document.createElement("div");
     card.className = `coupon-card ${coupon.type || ''}`;
     const label = prizeLabel(coupon.type);
@@ -33,9 +106,7 @@ function renderCoupons() {
       card.classList.add("used", "collapsed");
       card.innerHTML = `
         <div class="collapsed-summary">
-          <div class="sumi-mark">
-            <img src="images/mark_sumi.png" alt="済マーク" />
-          </div>
+          <div class="sumi-mark"><img src="images/mark_sumi.png" alt="済マーク" /></div>
           <div class="summary-text">
             <h3 class="store-name">${coupon.storeName}</h3>
             <p class="discount-amount">${discountHtml}</p>
@@ -44,7 +115,7 @@ function renderCoupons() {
 
         <div class="collapsed-details" style="display: none;">
           <ul class="coupon-conditions">
-            ${coupon.conditions.map(c => `<li>${c}</li>`).join("")}
+            ${(coupon.conditions || []).map(c => `<li>${c}</li>`).join("")}
           </ul>
           <p class="coupon-expiry">有効期限：${coupon.expiry}</p>
           <div class="coupon-actions">
@@ -83,7 +154,7 @@ function renderCoupons() {
           <p class="discount-amount">${discountHtml}</p>
         </div>
         <ul class="coupon-conditions">
-          ${coupon.conditions.map(c => `<li>${c}</li>`).join("")}
+          ${(coupon.conditions || []).map(c => `<li>${c}</li>`).join("")}
         </ul>
         <p class="coupon-expiry">有効期限：${coupon.expiry}</p>
         <div class="coupon-actions">
@@ -111,6 +182,7 @@ function renderCoupons() {
     if (button.dataset.handlerAttached === "1") return;
     button.dataset.handlerAttached = "1";
     button.addEventListener("click", () => {
+      hideOutsideKeyError(); // モーダルを開く前に外側エラーを消す
       const storeId = button.dataset.id;
       const userId = localStorage.getItem("userId");
       const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
@@ -120,18 +192,40 @@ function renderCoupons() {
         return;
       }
 
+      // restaurants から store を探して currentStore にセット
+      const restaurants = JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]") || [];
+      const store = restaurants.find(r => r.storeId === storeId) || null;
+      currentStore = store;
+
       const modal = document.getElementById("coupon-modal");
       if (!modal) {
         console.warn("use-button: coupon-modal not present");
         return;
       }
+
       modal.querySelector(".modal-store-name").textContent = coupon.storeName;
-      const label = prizeLabel(coupon.type);
-      modal.querySelector(".modal-discount").innerHTML = (label ? `${label}<br>` : "") + `${coupon.discount}円オフ`;
+      modal.querySelector(".modal-discount").innerHTML = (prizeLabel(coupon.type) ? `${prizeLabel(coupon.type)}<br>` : "") + `${coupon.discount}円オフ`;
       modal.querySelector(".modal-conditions").innerHTML = (coupon.conditions || []).map(c => `<li>${c}</li>`).join("");
       modal.querySelector(".modal-expiry").textContent = `有効期限：${coupon.expiry}`;
-      modal.querySelector("#key-input").value = "";
-      modal.dataset.storeId = storeId; // ここで確実に storeId を保持する
+
+      // key input 初期化 + フォーカス（存在すれば）
+      const keyInputEl = modal.querySelector("#key-input");
+      if (keyInputEl) { try { keyInputEl.value = ""; keyInputEl.focus(); } catch (e) {} }
+
+      // モーダル内の補助フィードバック要素（保留表示はしない設計だが要素は確保）
+      let keyFeedback = modal.querySelector("#key-feedback");
+      if (!keyFeedback) {
+        keyFeedback = document.createElement("div");
+        keyFeedback.id = "key-feedback";
+        keyFeedback.style.marginTop = "8px";
+        keyFeedback.style.fontWeight = "bold";
+        const actions = modal.querySelector(".coupon-actions");
+        if (actions && actions.parentNode) actions.parentNode.insertBefore(keyFeedback, actions.nextSibling);
+        else modal.appendChild(keyFeedback);
+      }
+      keyFeedback.textContent = ""; keyFeedback.className = "";
+
+      modal.dataset.storeId = storeId;
       modal.classList.remove("hidden");
     });
   });
@@ -140,7 +234,7 @@ function renderCoupons() {
   if (loadingOverlay) loadingOverlay.classList.add("hidden");
 }
 
-// 統合した DOMContentLoaded: サーバ state 読込 + 確定ボタン登録 + 初回 render
+// DOMContentLoaded: サーバ state 読込（あれば） + 確定ボタン登録 + 初回描画
 document.addEventListener("DOMContentLoaded", async () => {
   try {
     const userId = localStorage.getItem("userId");
@@ -149,7 +243,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         const url = LOG_URL + "?action=getState&userId=" + encodeURIComponent(userId);
         const respText = await fetch(url, { method: "GET" }).then(r => r.text());
         let resp;
-        try { resp = JSON.parse(respText); } catch(e) { resp = { status: "parse-error", raw: respText }; }
+        try { resp = JSON.parse(respText); } catch (e) { resp = { status: "parse-error", raw: respText }; }
         if (resp && resp.status === "OK" && resp.found && resp.state) {
           if (resp.state.coupons) localStorage.setItem(`myCoupons_${userId}`, JSON.stringify(resp.state.coupons));
           if (resp.state.restaurantData) localStorage.setItem(`restaurantData_${userId}`, JSON.stringify(resp.state.restaurantData));
@@ -166,68 +260,105 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.warn("coupon.js: DOMContentLoaded pre-sync error:", e);
   }
 
-  // confirm ボタン（クーポン使用確定）の登録（堅牢に）
+  // 確定ボタン（クーポン使用確定）の登録（堅牢に）
   try {
     const confirmBtn = document.querySelector(".confirm-use-button");
     if (confirmBtn) {
-      confirmBtn.addEventListener("click", async () => {
-        try {
-          const userId = localStorage.getItem("userId") || "未設定";
-          const couponModal = document.getElementById("coupon-modal");
-          const modalStoreId = couponModal && couponModal.dataset && couponModal.dataset.storeId ? couponModal.dataset.storeId : null;
-
-          // 優先: modal.dataset.storeId -> currentStore -> abort
-          let storeId = modalStoreId || (currentStore && (currentStore.storeId || currentStore.id)) || null;
-          if (!storeId) {
-            console.warn("confirm-use: no storeId found; aborting");
-            if (couponModal) couponModal.classList.add("hidden");
-            return;
-          }
-
-          // 解決: coupon, store 情報（より確実に）
-          const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
-          const restaurants = JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]") || [];
-          const coupon = coupons.find(c => c && (c.storeId === storeId || c.id === storeId || (c.baseId && c.baseId === storeId.split("-")[0])));
-          const store = restaurants.find(r => r && (r.storeId === storeId || r.id === storeId || (r.baseId && r.baseId === storeId.split("-")[0]))) || null;
-
-          // 保険: currentStore を更新
-          if (store) currentStore = store;
-
-          const storeName = (coupon && coupon.storeName) ? coupon.storeName : (store && store.name) ? store.name : "未設定";
-          const prizeType = (coupon && coupon.type) ? coupon.type : (store && store.prizeType) ? store.prizeType : "未設定";
-          const salonId = (store && store.salonId) ? store.salonId : (localStorage.getItem("salonId") || "未設定");
-
-          console.log("confirm-use: sending (resolved) ->", { userId, storeId, storeName, prizeType, salonId });
-
-          // mark -> then send usage log
+      if (confirmBtn.dataset.handlerAttached === "1") {
+        // 既に登録済み
+      } else {
+        confirmBtn.dataset.handlerAttached = "1";
+        confirmBtn.addEventListener("click", async () => {
           try {
-            const markRes = await markCouponUsedAndSync(storeId);
-            console.log("markCouponUsedAndSync result:", markRes);
+            const userId = localStorage.getItem("userId") || "未設定";
+            const couponModal = document.getElementById("coupon-modal");
+            const modalStoreId = couponModal && couponModal.dataset && couponModal.dataset.storeId ? couponModal.dataset.storeId : null;
 
-            // usage ログ送信（失敗しても UI は続行）
+            // 優先: modal.dataset.storeId -> currentStore -> abort
+            let storeId = modalStoreId || (currentStore && (currentStore.storeId || currentStore.id)) || null;
+            if (!storeId) {
+              console.warn("confirm-use: no storeId found; aborting");
+              if (couponModal) couponModal.classList.add("hidden");
+              hideOutsideKeyError();
+              return;
+            }
+
+            // 最新のローカル状態を参照
+            const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
+            const restaurants = JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]") || [];
+            const coupon = coupons.find(c => c && (c.storeId === storeId || c.id === storeId || (c.baseId && c.baseId === storeId.split("-")[0])));
+            const store = restaurants.find(r => r && (r.storeId === storeId || r.id === storeId || (r.baseId && r.baseId === storeId.split("-")[0]))) || null;
+
+            // 保険: currentStore を更新
+            if (store) currentStore = store;
+
+            const storeName = (coupon && coupon.storeName) ? coupon.storeName : (store && store.name) ? store.name : "未設定";
+            const prizeType = (coupon && coupon.type) ? coupon.type : (store && store.prizeType) ? store.prizeType : "未設定";
+            const salonId = (store && store.salonId) ? store.salonId : (localStorage.getItem("salonId") || "未設定");
+
+            // --- キー検証ロジック ---
+            const keyInput = couponModal ? couponModal.querySelector("#key-input") : null;
+            // modal 内の補助要素（成功メッセージは出さない）
+            let keyFeedback = couponModal ? couponModal.querySelector("#key-feedback") : null;
+            const enteredKey = keyInput && keyInput.value ? String(keyInput.value).trim() : "";
+
+            // store.key が存在する場合は照合を必須にする
+            if (store && store.key) {
+              if (enteredKey === "") {
+                // 空入力は外側に表示
+                showOutsideKeyError("使用キーを入力してください");
+                return; // 入力を促して中断
+              }
+              if (String(store.key) !== enteredKey) {
+                // 不一致は外側に表示（モーダル外）
+                showOutsideKeyError("使用キーが異なります");
+                return; // キー不一致 → 中断
+              } else {
+                // 一致したら外側エラーは消して、そのまま成功フローへ（モーダル内の「ありがとうございます」は不要）
+                hideOutsideKeyError();
+              }
+            } else {
+              // キー未設定の店舗はそのまま通す
+              hideOutsideKeyError();
+            }
+
+            console.log("confirm-use: resolved ->", { userId, storeId, storeName, prizeType, salonId });
+
+            // mark -> send usage log (先にローカル反映)
+            try {
+              const markRes = await markCouponUsedAndSync(storeId);
+              console.log("markCouponUsedAndSync result:", markRes);
+            } catch (err) {
+              console.warn("confirm-use: markCouponUsedAndSync failed:", err);
+            }
+
             try {
               const sendRes = await sendUsageLog({ userId, storeId, storeName, prizeType, salonId });
               console.log("sendUsageLog result:", sendRes);
             } catch (e) {
               console.warn("sendUsageLog failed after mark:", e);
             }
+
+            // 成功時は即座に Thanks を表示（モーダルは閉じる）
+            try {
+              const m = couponModal || document.getElementById("coupon-modal");
+              if (m) m.classList.add("hidden");
+            } catch (e) {}
+
+            try {
+              showThankYou(() => {
+                try { renderCoupons(); } catch (e) { console.warn("renderCoupons after thankyou failed:", e); }
+                try { if (typeof window.renderRestaurants === "function") window.renderRestaurants(); } catch (e) {}
+              });
+            } catch (e) {
+              // fallback
+              try { renderCoupons(); } catch (err) { console.warn("renderCoupons fallback failed:", err); }
+            }
           } catch (err) {
-            console.warn("confirm-use: markCouponUsedAndSync failed:", err);
+            console.error("confirm-use handler unexpected error:", err);
           }
-
-          // UI cleanup + re-render
-          try { if (couponModal) couponModal.classList.add("hidden"); } catch(e){}
-          const keyInput = document.getElementById("key-input");
-          if (keyInput) keyInput.value = "";
-
-          try { renderCoupons(); } catch (e) { console.warn("renderCoupons after confirm failed:", e); }
-          try { if (typeof window.renderRestaurants === "function") window.renderRestaurants(); } catch(e) { console.warn("renderRestaurants after confirm failed:", e); }
-
-          try { showThankYou && showThankYou(() => { try { renderCoupons(); } catch(e){} }); } catch(e){}
-        } catch (err) {
-          console.error("confirm-use handler unexpected error:", err);
-        }
-      });
+        });
+      }
     } else {
       console.warn("confirm-use-button not found");
     }
@@ -239,15 +370,53 @@ document.addEventListener("DOMContentLoaded", async () => {
   try { renderCoupons(); } catch (e) { console.warn("initial renderCoupons failed:", e); }
 });
 
-// helper: サロンID解決（必要ならマップ）
-function getSalonId(prizeType) {
-  const map = { "normal": "salon001", "rare": "salon002", "last-one": "salon003" };
-  return map[prizeType] || localStorage.getItem("salonId") || "salon000";
+// ---- showThankYou: 使用完了時のアニメ風表示 ----
+function showThankYou(callback) {
+  const thankYou = document.createElement("div");
+  thankYou.textContent = "🎉 Thank You!";
+  thankYou.style.position = "fixed";
+  thankYou.style.top = "50%";
+  thankYou.style.left = "50%";
+  thankYou.style.transform = "translate(-50%, -50%)";
+  thankYou.style.fontSize = "2rem";
+  thankYou.style.background = "#ff6f61";
+  thankYou.style.color = "white";
+  thankYou.style.padding = "20px 40px";
+  thankYou.style.borderRadius = "12px";
+  thankYou.style.zIndex = "1000";
+  thankYou.style.boxShadow = "0 0 10px rgba(0,0,0,0.3)";
+  thankYou.style.transition = "opacity 300ms ease, transform 300ms ease";
+  thankYou.style.opacity = "0";
+  document.body.appendChild(thankYou);
+
+  requestAnimationFrame(() => {
+    thankYou.style.opacity = "1";
+    thankYou.style.transform = "translate(-50%, -54%) scale(1.02)";
+  });
+
+  setTimeout(() => {
+    thankYou.style.opacity = "0";
+    thankYou.style.transform = "translate(-50%, -46%) scale(0.98)";
+    setTimeout(() => {
+      try { thankYou.remove(); } catch (e) {}
+      if (typeof callback === "function") callback();
+    }, 320);
+  }, 1400);
 }
 
-// openModal（restaurants の店舗詳細モーダル）
+// --- openModal / photo helpers ---
 let currentPhotoIndex = 0;
 let currentStore = null;
+
+function updatePhoto(images) {
+  const photo = document.getElementById("modal-photo");
+  if (!photo) return;
+  if (!images || images.length === 0) {
+    photo.src = "images/secret_image.png";
+    return;
+  }
+  photo.src = images[currentPhotoIndex] || images[0];
+}
 
 function openModal(store) {
   if (!store) return;
@@ -259,10 +428,7 @@ function openModal(store) {
 
   const modal = document.getElementById("restaurant-modal");
   if (!modal) {
-    // fallback: play video directly if available
-    if (store.videoUrl) {
-      playFullScreenVideo(store.videoUrl);
-    }
+    if (store.videoUrl) playFullScreenVideo(store.videoUrl);
     return;
   }
 
@@ -305,13 +471,12 @@ function playFullScreenVideo(url) {
   v.addEventListener("ended", () => container.remove());
 }
 
-// logging helper (Apps Script expects form-urlencoded 'data=')
+// --- logging helpers (Apps Script expects form-urlencoded 'data=') ---
 function postLog(payload) {
   if (!LOG_URL) {
     console.warn("postLog: LOG_URL not configured — skipping", payload);
     return Promise.resolve({ skipped: true });
   }
-  // allow Apps Script to filter viewed events from non-gacha sources
   if (payload && payload.eventType === "viewed" && payload.eventSource && payload.eventSource !== "gacha") {
     console.log("postLog: skipping viewed (not gacha):", payload.eventSource);
     return Promise.resolve({ skipped: true });
@@ -328,7 +493,6 @@ function postLog(payload) {
 
 function sendUsageLog({ userId, storeId, storeName, prizeType, salonId }) {
   const payload = { timestamp: new Date().toISOString(), userId, storeId, storeName, prizeType, salonId, eventType: "used", gachaCompleted: localStorage.getItem("gachaCompleted") === "true" };
-  // simple dedupe
   try {
     const key = 'lastSentLog';
     const last = JSON.parse(sessionStorage.getItem(key) || "{}");
@@ -347,11 +511,7 @@ function sendUsageLog({ userId, storeId, storeName, prizeType, salonId }) {
   return postLog(payload).then(res => { console.log("sendUsageLog ok:", res); return res; }).catch(err => { console.error("sendUsageLog error:", err); throw err; });
 }
 
-/**
- * markCouponUsedAndSync
- * - couponIdentifier は storeId（例: ramen001-2）を想定
- * - ローカル更新 → render → dispatch('couponsChanged') → サーバ同期（安全ラッパー）
- */
+// --- markCouponUsedAndSync: ローカル反映 → render → サーバ同期（安全ラッパーで） ---
 function markCouponUsedAndSync(couponIdentifier) {
   try {
     const userId = localStorage.getItem("userId");
@@ -393,15 +553,13 @@ function markCouponUsedAndSync(couponIdentifier) {
       }
     }
 
-    // ローカル保存 + 再描画 + イベント通知（即時反映）
     localStorage.setItem(couponsKey, JSON.stringify(coupons));
     localStorage.setItem(restaurantsKey, JSON.stringify(restaurants));
-    try { renderCoupons(); } catch(e) { console.warn("renderCoupons after mark failed:", e); }
-    try { if (typeof window.renderRestaurants === "function") window.renderRestaurants(); } catch(e){}
+    try { renderCoupons(); } catch (e) { console.warn("renderCoupons after mark failed:", e); }
+    try { if (typeof window.renderRestaurants === "function") window.renderRestaurants(); } catch (e) {}
 
-    try { window.dispatchEvent(new Event('couponsChanged')); } catch(e) { console.warn('dispatch couponsChanged failed', e); }
+    try { window.dispatchEvent(new Event('couponsChanged')); } catch (e) { console.warn('dispatch couponsChanged failed', e); }
 
-    // サーバ同期（安全ラッパー）
     const snapshot = { coupons, restaurantData: restaurants, gachaState: JSON.parse(localStorage.getItem(`gachaState_${userId}`) || "{}") };
     return requestSaveSnapshotSafe(snapshot, true).then(res => ({ ok: true, applied: found, savedOrQueued: res })).catch(err => {
       console.warn("markCouponUsedAndSync: requestSaveSnapshotSafe failed:", err);
@@ -413,7 +571,7 @@ function markCouponUsedAndSync(couponIdentifier) {
   }
 }
 
-// ---- START: requestSaveSnapshotSafe (既存ロジックのまま、デバッグログ強化) ----
+// ---- requestSaveSnapshotSafe: セーフティラッパー（重複保存や適用中の衝突回避） ----
 function requestSaveSnapshotSafe(snapshot, immediate) {
   window.__applyingServerState = window.__applyingServerState || false;
   window.__lastSavedSnapshotJson = window.__lastSavedSnapshotJson || null;
@@ -455,8 +613,7 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
     }
 
     try {
-      const LOG_URL_FALLBACK = "https://script.google.com/macros/s/AKfycbwk02U0POEPJfGWzmyn2TqzIpyX10-0WyfTKITw6gB8ceJa9vT_U1-EnEzg5vOAVjoU/exec";
-      const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || LOG_URL_FALLBACK);
+      const url = (typeof LOG_URL !== "undefined") ? LOG_URL : (window.LOG_URL || "");
       const userId = localStorage.getItem("userId");
       if (!userId) return Promise.resolve({ skipped: true, reason: 'no-user' });
       const payload = { eventType: "saveState", userId: userId, state: snapshot || {} };
@@ -464,14 +621,14 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
         body: "data=" + encodeURIComponent(JSON.stringify(payload))
-      }).then(r => r.text()).then(t => { try { return JSON.parse(t); } catch(e){ return { raw: t }; } });
+      }).then(r => r.text()).then(t => { try { return JSON.parse(t); } catch (e) { return { raw: t }; } });
     } catch (e) {
       return Promise.reject(e);
     }
   };
 
   return doSave().then(res => {
-    try { if (snapshotJson) window.__lastSavedSnapshotJson = snapshotJson; } catch(e){}
+    try { if (snapshotJson) window.__lastSavedSnapshotJson = snapshotJson; } catch (e) {}
     return res;
   }).catch(err => {
     console.warn('requestSaveSnapshotSafe: save failed', err);
@@ -479,18 +636,6 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
   });
 }
 window.requestSaveSnapshotSafe = requestSaveSnapshotSafe;
-// ---- END: requestSaveSnapshotSafe ----
-
-// 小さな UI ヘルパ（写真ナビなど）
-function updatePhoto(images) {
-  const photo = document.getElementById("modal-photo");
-  if (!photo) return;
-  if (!images || images.length === 0) {
-    photo.src = "images/secret_image.png";
-    return;
-  }
-  photo.src = images[currentPhotoIndex] || images[0];
-}
 
 // モーダルの閉じボタンバインド（存在すれば）
 (function bindModalClose() {
@@ -498,6 +643,7 @@ function updatePhoto(images) {
   if (close) close.addEventListener("click", () => {
     const modal = document.getElementById("restaurant-modal");
     if (modal) modal.classList.add("hidden");
+    hideOutsideKeyError();
   });
 })();
 
@@ -506,5 +652,6 @@ function updatePhoto(images) {
   if (close) close.addEventListener("click", () => {
     const modal = document.getElementById("coupon-modal");
     if (modal) modal.classList.add("hidden");
+    hideOutsideKeyError();
   });
 })();
