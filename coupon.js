@@ -324,6 +324,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
             console.log("confirm-use: resolved ->", { userId, storeId, storeName, prizeType, salonId });
 
+            // 表示：読み込み中の準備画像を出す（Thank You 表示が出るまで見せる）
+            try { showCouponReadyImage(); } catch (e) { console.warn('showCouponReadyImage error', e); }
+
             // mark -> send usage log (先にローカル反映)
             try {
               const markRes = await markCouponUsedAndSync(storeId);
@@ -370,8 +373,42 @@ document.addEventListener("DOMContentLoaded", async () => {
   try { renderCoupons(); } catch (e) { console.warn("initial renderCoupons failed:", e); }
 });
 
+function showCouponReadyImage() {
+  try {
+    // 既存要素があれば再利用、なければ body に作る（HTML に既に置いた場合は既存要素を使う）
+    let el = document.getElementById('coupon-ready-overlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'coupon-ready-overlay';
+      el.className = 'coupon-ready-overlay';
+      el.style.pointerEvents = 'none';
+      const img = document.createElement('img');
+      img.src = 'images/coupon-ready.png';
+      img.alt = '準備中';
+      img.className = 'coupon-ready-img';
+      el.appendChild(img);
+      document.body.appendChild(el);
+    }
+    el.classList.remove('hidden');
+  } catch (e) {
+    console.warn('showCouponReadyImage failed', e);
+  }
+}
+
+function hideCouponReadyImage() {
+  try {
+    const el = document.getElementById('coupon-ready-overlay');
+    if (el) el.classList.add('hidden');
+  } catch (e) {
+    // noop
+  }
+}
+
 // ---- showThankYou: 使用完了時のアニメ風表示 ----
 function showThankYou(callback) {
+  // Thank You 表示直前に読み込み画像を消す（ユーザが見ているのは読み込み画像 → 祝表示へ遷移）
+  try { hideCouponReadyImage(); } catch (e) { /* noop */ }
+
   const thankYou = document.createElement("div");
   thankYou.textContent = "🎉 Thank You!";
   thankYou.style.position = "fixed";

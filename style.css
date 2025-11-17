@@ -866,6 +866,29 @@ html, body {
   display: none;
 }
 
+/* --- クーポン準備画像オーバーレイ --- */
+#coupon-ready-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 950;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 非表示は .hidden で制御（既存の .hidden を利用） */
+}
+
+#coupon-ready-overlay .coupon-ready-img {
+  width: 80vw;           /* 画面横幅の80% */
+  max-width: 1200px;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+}
+
 .coupon-card.used {
   background: linear-gradient(to right, #cccccc, #eeeeee);
   color: #999;
