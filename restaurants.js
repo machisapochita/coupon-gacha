@@ -19,7 +19,7 @@ const restaurantsKeyTop = `restaurantData_${currentUserId}`;
 // --- ユーティリティ: プレースホルダ画像や DOM 取得の安全化 ---
 function safeGetById(id) { try { return document.getElementById(id); } catch(e){ return null; } }
 const LOCK_IMG = "images/rock_chain.png";
-const PLACEHOLDER_IMG = "images/sample1.jpg";
+const PLACEHOLDER_IMG = "images/secret_image.png";
 
 // --- モーダル / 動画再生 ハンドラ ---
 function playFullScreenVideo(videoUrl) {
@@ -185,7 +185,7 @@ function renderRestaurants(restaurantArray) {
         img.src = 'images/secret_image.png';
         img.alt = '秘匿画像';
       } else {
-        img.src = (store.images && store.images[0]) ? store.images[0] : 'images/sample1.jpg';
+        img.src = (store.images && store.images[0]) ? store.images[0] : 'images/secret_image.png';
         img.alt = store.name || '店舗写真';
       }
       content.appendChild(img);

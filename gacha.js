@@ -901,11 +901,8 @@ function updateGachaButtonState() {
   const restaurantKey = `restaurantData_${userId}`;
 
   const gachaButtonImage = document.getElementById("gacha-button-image");
-  // 無ければ（そのページはガチャUIを持っていない）安全終了
-  if (!gachaButtonImage) {
-    console.warn("updateGachaButtonState: gacha-button-image が見つかりません。処理をスキップします。");
-    return;
-  }
+  // ガチャ要素が無ければ静かに抜ける（正常なケース）
+  if (!gachaButtonImage) return;
 
   const state = JSON.parse(localStorage.getItem(gachaKey));
   const allStores = JSON.parse(localStorage.getItem(restaurantKey) || "[]");

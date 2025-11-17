@@ -268,7 +268,7 @@ function openModal(store) {
 
   modal.querySelector(".modal-store-name").textContent = store.name || "店舗名";
   const photoEl = modal.querySelector("#modal-photo");
-  if (photoEl) photoEl.src = (store.images && store.images[0]) ? store.images[0] : "images/sample1.jpg";
+  if (photoEl) photoEl.src = (store.images && store.images[0]) ? store.images[0] : "images/secret_image.png";
   const townEl = modal.querySelector(".modal-town");
   if (townEl) townEl.textContent = `📍 所在地：${store.town || "未設定"}`;
   const hoursEl = modal.querySelector(".modal-hours");
@@ -486,7 +486,7 @@ function updatePhoto(images) {
   const photo = document.getElementById("modal-photo");
   if (!photo) return;
   if (!images || images.length === 0) {
-    photo.src = "images/sample1.jpg";
+    photo.src = "images/secret_image.png";
     return;
   }
   photo.src = images[currentPhotoIndex] || images[0];
