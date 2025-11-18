@@ -425,30 +425,28 @@ function initGachaUI() {
   }
 }
 
-// DOMContentLoaded 時に initGachaUI を確実に呼ぶ（loading-overlay を末尾に移動して表示）
+// DOMContentLoaded 時に initGachaUI を確実に呼ぶ（gacha ページかどうかを判定して overlay を操作）
 document.addEventListener("DOMContentLoaded", async () => {
-  // 該当オーバーレイを取得（無ければ null）
-  const loadingOverlay = (typeof document !== "undefined") ? document.getElementById("loading-overlay") : null;
+  // このスクリプトがページ全体に入る可能性があるため、
+  // gacha ページ固有の要素が存在する場合にのみ overlay を操作する
+  const isGachaPage = !!document.getElementById("gacha-button-image") || !!document.getElementById("gacha-popup");
+  if (!isGachaPage) {
+    // gacha.js の初期化（ページ外では何もしないか、initGachaUI を呼ばない）
+    try { await (typeof initGachaUI === "function" ? initGachaUI() : Promise.resolve()); } catch (e) { /* ignore */ }
+    return;
+  }
+
+  const loadingOverlay = document.getElementById("loading-overlay");
   try {
     if (loadingOverlay) {
-      try {
-        // 1) 要素を body の末尾に移動して stacking を安定化
-        try { document.body.appendChild(loadingOverlay); } catch(e) { /* ignore */ }
-
-        // 2) 念のためインラインで z-index を強制（CSS の上書き回避）
-        try { loadingOverlay.style.zIndex = "99999"; } catch(e) {}
-
-        // 3) 表示
-        try { loadingOverlay.classList.remove("hidden"); } catch(e) { loadingOverlay.style.display = "flex"; }
-      } catch(e) { console.warn("loading-overlay show failed:", e); }
+      try { document.body.appendChild(loadingOverlay); } catch (e) {}
+      try { loadingOverlay.style.zIndex = "99999"; } catch (e) {}
+      try { loadingOverlay.classList.remove("hidden"); } catch(e) { loadingOverlay.style.display = "flex"; }
     }
-
-    // initGachaUI が非同期処理を含む可能性がある場合に await しても安全
     await (typeof initGachaUI === "function" ? initGachaUI() : Promise.resolve());
   } catch (e) {
     console.warn("DOMContentLoaded initGachaUI failed:", e);
   } finally {
-    // 隠す（存在チェック付き）
     if (loadingOverlay) {
       try { loadingOverlay.classList.add("hidden"); } catch(e) { loadingOverlay.style.display = "none"; }
     }
@@ -702,10 +700,7 @@ function startGachaSequence() {
     // 3) 当選店舗の PR 動画を再生
     if (store.videoUrl) {
       try {
-        // PR の事前読み込みを始める前にオーバーレイを表示（ユーザーに読み込み中を明示）
-        try { if (loadingOverlay) { loadingOverlay.classList.remove("hidden"); } } catch(e) { if (loadingOverlay) loadingOverlay.style.display = "flex"; }
-
-        // 事前読み込み（可能な限り）してから再生
+        // PR の事前読み込み（表示は行わずバックグラウンドで行う）
         await preloadVideo(prVideo, store.videoUrl, { preload: "auto", timeout: 7000 });
       } catch (e) {
         console.warn("PR video preload failed:", e);
