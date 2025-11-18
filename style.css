@@ -866,6 +866,18 @@ html, body {
   display: none;
 }
 
+/* クーポン無しの案内表示（coupon ページ） */
+.no-coupons {
+  color: #000;               /* 黒文字 */
+  text-align: center;
+  font-weight: 700;
+  font-size: clamp(6px, 6vw, 28px); /* 画面幅に応じた大きさ */
+  line-height: 1.1;          /* 改行を自然に見せる */
+  padding: 24px 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .coupon-card.used {
   background: linear-gradient(to right, #cccccc, #eeeeee);
   color: #999;

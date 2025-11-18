@@ -173,6 +173,13 @@ function renderCoupons() {
   const userId = localStorage.getItem("userId");
   const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
 
+  // 所持クーポンが 0 枚ならメッセージ表示して終了
+  if (!Array.isArray(coupons) || coupons.length === 0) {
+    container.innerHTML = '<div class="no-coupons">現在使用可能な<br>クーポンはありません</div>';
+    // もし restaurants のレンダリング等と同期する必要があればここでイベントを発火しても良い
+    return;
+  }
+
   const sorted = coupons.slice().sort((a, b) => Number(!!a.used) - Number(!!b.used));
 
   sorted.forEach(coupon => {
