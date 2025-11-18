@@ -799,7 +799,7 @@ function openCouponPopupWithLoop(prizeType, store) {
   const typeEl = document.getElementById("coupon-type");
   if (typeEl) typeEl.style.display = "none";
 
-  document.getElementById("coupon-store-name").textContent = store.name;
+  document.getElementById("modal-store-name").textContent = store.name;
   const coupon = store.coupon || { discount: 0, conditions: [], expiry: "" };
 
   const lblMap = { normal: "ノーマル賞", rare: "レア賞", "last-one": "ラストワン賞" };
@@ -1153,7 +1153,7 @@ function showCouponCard(store, prizeType) {
   const typeEl = document.getElementById("coupon-type");
   if (typeEl) typeEl.style.display = "none";
 
-  document.getElementById("coupon-store-name").textContent = store.name;
+  document.getElementById("modal-store-name").textContent = store.name;
 
   const lblMap = { normal: "ノーマル賞", rare: "レア賞", "last-one": "ラストワン賞" };
   const label = lblMap[prizeType] || "";

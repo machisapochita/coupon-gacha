@@ -260,7 +260,7 @@ html, body {
 /* ガチャ残り回数 */
 .remaining-count {
   font-weight: bold;
-  font-size: 1.2em;
+  font-size: 1.5em;
 }
 
 /* ノーマル賞＋レア賞を横並びに */
@@ -669,7 +669,7 @@ html, body {
 }
 
 .coupon-card-display ul {
-  font-size: 6vw;
+  font-size: clamp(6px, 4vw, 18px);
   text-align: left;
   padding-left: 5px;
   margin-bottom: 5px;
@@ -677,8 +677,9 @@ html, body {
 }
 
 .coupon-card-expiry {
-  font-size: 6vw;
+  font-size: clamp(8px, 5vw, 20px);
   padding: 5px 0;
+  background-color: rgb(248, 188, 109);
   border: 0.5px solid black;
   margin-bottom: 8px;
 }
@@ -773,23 +774,27 @@ html, body {
 }
 
 .store-name {
-  font-size: 7vw;
+  font-size: clamp(12px, 6vw, 24px);
   font-weight: bold;
 }
 
 .store-salon-name {
-  font-size: 5vw;
+  font-size: clamp(10px, 6vw, 20px);
   font-weight: bold;
 }
 
+.modal-salon-name {
+  font-size: clamp(10px, 6vw, 20px);
+}
+
 .discount-amount {
-  font-size: 7vw;
+  font-size: clamp(8px, 5vw, 20px);
   color: #e65c00;
   font-weight: bold;
 }
 
 .coupon-card ul {
-  font-size: 6vw;
+  font-size: clamp(6px, 4vw, 18px);
   text-align: left;
   padding-left: 5px;
   margin-bottom: 5px;
@@ -802,7 +807,7 @@ html, body {
 }
 
 .coupon-expiry {
-  font-size: 5vw;
+  font-size: clamp(8px, 5vw, 20px);
   margin-bottom: 10px;
   border: 0.5px solid black;
   background-color: rgb(248, 188, 109);
@@ -934,12 +939,12 @@ html, body {
   text-align: left;
 }
 .summary-text .store-name {
-  font-size: 6vw;
+  font-size: clamp(12px, 6vw, 24px);
   font-weight: bold;
   margin-bottom: 2px;
 }
 .summary-text .discount-amount {
-  font-size: 5vw;
+  font-size: clamp(8px, 5vw, 20px);
   color: #999;
 }
 
@@ -959,12 +964,12 @@ html, body {
 }
 
 .coupon-card.collapsed .store-name {
-  font-size: 6vw;
+  font-size: clamp(12px, 6vw, 24px);
   font-weight: bold;
 }
 
 .coupon-card.collapsed .discount-amount {
-  font-size: 6vw;
+  font-size: clamp(8px, 5vw, 20px);
   color: #999;
 }
 
@@ -1040,7 +1045,7 @@ html, body {
 }
 
 .photo-nav {
-  font-size: 7vw;
+  font-size: clamp(6px, 7vw, 18px);
   width: 40px;
   height: 40px;
   background-color: #c2c0c0;
@@ -1061,7 +1066,7 @@ html, body {
 
 .photo-controls button {
   padding: 1px 12px;
-  font-size: 6vw;
+  font-size: clamp(6px, 7vw, 18px);
   border: none;
   border-radius: 6px;
   background-color: #66cc99;
@@ -1072,7 +1077,7 @@ html, body {
 .modal-town,
 .modal-status,
 .modal-hours {
-  font-size: 5vw;
+  font-size: clamp(6px, 4vw, 18px);
 }
 
 .modal-links {
@@ -1158,7 +1163,7 @@ html, body {
 }
 
 .store-town {
-  font-size: 4vw;
+  font-size: clamp(6px, 4vw, 18px);
   color: #666;
 }
 
@@ -1205,12 +1210,12 @@ html, body {
 
 .modal .modal-store-name {
   font-family: 'Noto Sans JP', sans-serif;
-  font-size: clamp(16px, 6vw, 28px);
+  font-size: clamp(12px, 6vw, 24px);
   font-weight: bold;
 }
 
 .modal-discount {
-  font-size: 8vw;
+  font-size: clamp(8px, 5vw, 20px);
   color: #e65c00;
   font-weight: bold;
   margin-bottom: 5px;
@@ -1220,12 +1225,12 @@ html, body {
   text-align: left;
   padding-left: 10px;
   margin: 5px 0;
-  font-size: 6vw;
+  font-size: clamp(6px, 4vw, 18px);
   list-style-position: inside;
 }
 
 .modal-expiry {
-  font-size: 5vw;
+  font-size: clamp(8px, 5vw, 20px);
   margin-bottom: 6px;
   border: 0.5px solid black;
   background-color: rgb(248, 188, 109);
@@ -1233,11 +1238,11 @@ html, body {
 
 .modal-key {
   margin: 10px 2px;
-  font-size: 6vw;
+  font-size: clamp(6px, 4vw, 18px);
 }
 
 #key-input {
-  font-size: clamp(10px, 6vw, 28px);
+  font-size: clamp(6px, 7vw, 28px);
   padding: 8px;
   text-align: center;
   width: 80%;
@@ -1310,7 +1315,7 @@ html, body {
 }
 
 .restaurant-card h3.store-name {
-  font-size: 4vw;
+  font-size: clamp(12px, 6vw, 24px);
   margin-bottom: 5px;
   font-weight: bold;
   color: #333;

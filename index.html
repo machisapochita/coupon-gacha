@@ -32,13 +32,18 @@
     </form>
   </main>
 
+  <!-- ログイン時の読み込みオーバーレイ（login-check.png） -->
+  <div id="loading-overlay" class="loading-overlay hidden" aria-hidden="true">
+    <img src="images/login-check.png" alt="読み込み中..." class="loading-image" />
+  </div>
+
   <div id="login-messages">
     <p id="success-message" class="success-message hidden">ログイン成功！</p>
     <p id="error-message" class="error-message hidden">ログインIDが間違っています。<br>再度お確かめください。</p>
   </div>
 
   <footer class="footer-bar-initial">
-    <p>©2025 Local Connect</p>
+    <p>まちサポクーポンガチャ</p>
   </footer>
 
   <script src="gacha.js"></script>

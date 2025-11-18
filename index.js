@@ -57,13 +57,43 @@ document.addEventListener("DOMContentLoaded", () => {
         // ログイン成功 → localStorageに保存
         const matchedUser = data.users.find(user => user.id === enteredId);
         if (matchedUser) {
-          localStorage.setItem("userId", matchedUser.id);
-          localStorage.setItem("salonId", matchedUser.salonId);
-          
-          // ログイン直後にサーバー状態を取得・適用
-          await loadUserStateAfterLogin(matchedUser.id);
+        localStorage.setItem("userId", matchedUser.id);
+        localStorage.setItem("salonId", matchedUser.salonId);
+
+        // --- 読み込みオーバーレイを表示（存在しなければ生成） ---
+        let loadingOverlay = document.getElementById("loading-overlay");
+        try {
+          if (!loadingOverlay && typeof document !== "undefined") {
+            loadingOverlay = document.createElement("div");
+            loadingOverlay.id = "loading-overlay";
+            loadingOverlay.className = "loading-overlay hidden";
+            const img = document.createElement("img");
+            img.src = "images/login-check.png";
+            img.alt = "読み込み中...";
+            img.className = "loading-image";
+            loadingOverlay.appendChild(img);
+            try { document.body.appendChild(loadingOverlay); } catch(e) {}
+          }
+          if (loadingOverlay) {
+            try { document.body.appendChild(loadingOverlay); } catch(e) {}
+            try { loadingOverlay.style.zIndex = "99999"; } catch(e) {}
+            try { loadingOverlay.classList.remove("hidden"); } catch(e) { loadingOverlay.style.display = "flex"; }
+          }
+        } catch(e) {
+          console.warn("show login loadingOverlay failed:", e);
         }
-        successMsg.classList.remove("hidden");
+
+        // ログイン直後にサーバー状態を取得・適用（読み込み中表示のまま待つ）
+        try {
+          await loadUserStateAfterLogin(matchedUser.id);
+        } catch (e) {
+          console.warn("loadUserStateAfterLogin failed:", e);
+        } finally {
+          // 読み込みオーバーレイを隠す
+          try { if (loadingOverlay) { loadingOverlay.classList.add("hidden"); } } catch (e) { if (loadingOverlay) loadingOverlay.style.display = "none"; }
+        }
+      }
+      successMsg.classList.remove("hidden");
 
         setTimeout(() => {
           window.location.href = "top.html";
