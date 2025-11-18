@@ -1,6 +1,5 @@
-// coupon.js — 完全版（賞種ラベル + 店舗別使用キー検証 + showThankYou 表示 + 外側エラーメッセージ）
+// coupon.js — 完全版（読み込みオーバーレイ堅牢化 + 店舗/クーポンキー検証 + 読み込み画像演出 + Thank You 表示）
 
-// ページ単位で上書き可能なロギング先
 const LOG_URL = (typeof window !== "undefined" && window.LOG_URL) ? window.LOG_URL : "https://script.google.com/macros/s/AKfycbwk02U0POEPJfGWzmyn2TqzIpyX10-0WyfTKITw6gB8ceJa9vT_U1-EnEzg5vOAVjoU/exec";
 
 function prizeLabel(type) {
@@ -12,54 +11,46 @@ function prizeLabel(type) {
   }
 }
 
-// --- Helper: 外側に表示するキーエラーメッセージ管理 ---
+/* ---------------------------
+   外側エラーメッセージ（モーダル下に固定表示）
+   --------------------------- */
 let __outsideKeyErrorResizeHandler = null;
 function showOutsideKeyError(message) {
   try {
-    hideOutsideKeyError(); // まず既存を消す
+    hideOutsideKeyError();
     const modal = document.getElementById("coupon-modal");
     const el = document.createElement("div");
     el.id = "outside-key-error";
     el.textContent = message;
-    // 赤文字のみ、背景やボーダーは不要
     el.style.position = "fixed";
     el.style.color = "#e53935";
     el.style.background = "transparent";
-    el.style.padding = "4px 0";
+    el.style.padding = "4px 6px";
     el.style.border = "none";
     el.style.zIndex = "2000";
     el.style.fontWeight = "600";
     el.style.whiteSpace = "nowrap";
-    el.style.pointerEvents = "none"; // クリックを妨げない
+    el.style.pointerEvents = "none";
     document.body.appendChild(el);
 
     function position() {
       const m = modal || document.getElementById("coupon-modal");
       const rect = m ? m.getBoundingClientRect() : { left: window.innerWidth / 2, width: 0, bottom: window.innerHeight * 0.75, top: window.innerHeight * 0.75 };
-      // 要素のサイズが確定してから位置を計算する
       const ew = el.offsetWidth;
       const eh = el.offsetHeight;
-
-      // 左位置はモーダル中央に揃える（画面内に収める）
       let left = rect.left + (rect.width / 2) - (ew / 2);
       left = Math.max(8, Math.min(left, window.innerWidth - ew - 8));
-
-      // まずモーダルの直下に表示、はみ出す場合はモーダルの上に配置
-      let top = rect.bottom + 8; // 下側 8px マージン
+      let top = rect.bottom + 8;
       if (top + eh + 8 > window.innerHeight) {
-        // 画面下にはみ出す -> 上側に表示
         top = rect.top - eh - 8;
-        // それでも上にはみ出すなら画面下寄せにする
         if (top < 8) {
           top = Math.max(8, window.innerHeight - eh - 8);
         }
       }
-
       el.style.left = `${left}px`;
       el.style.top = `${top}px`;
     }
 
-    // DOM 描画後に正確な寸法で配置
     requestAnimationFrame(() => {
       position();
       __outsideKeyErrorResizeHandler = () => position();
@@ -84,7 +75,96 @@ function hideOutsideKeyError() {
   }
 }
 
-// --- renderCoupons: クーポン一覧描画（使う・紹介ボタンのセット含む） ---
+/* ---------------------------
+   読み込み／準備画像オーバーレイ表示（堅牢化）
+   - 画像が無い場合はフォールバックのテキスト枠を表示
+   - CSS が適用されていない状況にも対応するためインラインスタイルを設定
+   --------------------------- */
+function showCouponReadyImage() {
+  try {
+    let el = document.getElementById('coupon-ready-overlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'coupon-ready-overlay';
+      // 重要：インラインスタイルで確実に中央表示されるようにする
+      el.style.position = 'fixed';
+      el.style.top = '50%';
+      el.style.left = '50%';
+      el.style.transform = 'translate(-50%, -50%)';
+      el.style.zIndex = '950';
+      el.style.pointerEvents = 'none';
+      el.style.display = 'flex';
+      el.style.alignItems = 'center';
+      el.style.justifyContent = 'center';
+      // 内部に img と fallback を作る
+      const img = document.createElement('img');
+      img.src = 'images/coupon-ready.png';
+      img.alt = '準備完了';
+      img.className = 'coupon-ready-img';
+      // 見た目確保（インラインで幅指定。style.css と併用）
+      img.style.width = '80vw';
+      img.style.maxWidth = '1200px';
+      img.style.height = 'auto';
+      img.style.display = 'block';
+      img.style.borderRadius = '8px';
+      img.style.boxShadow = '0 8px 24px rgba(0,0,0,0.25)';
+      // フォールバック要素（画像が壊れているときに表示）
+      const fallback = document.createElement('div');
+      fallback.id = 'coupon-ready-fallback';
+      fallback.textContent = '準備完了';
+      fallback.style.display = 'none';
+      fallback.style.minWidth = '200px';
+      fallback.style.minHeight = '80px';
+      fallback.style.padding = '20px 24px';
+      fallback.style.background = 'rgba(255,255,255,0.95)';
+      fallback.style.color = '#333';
+      fallback.style.borderRadius = '10px';
+      fallback.style.fontSize = '1.6rem';
+      fallback.style.fontWeight = '700';
+      fallback.style.boxShadow = '0 8px 24px rgba(0,0,0,0.25)';
+      fallback.style.textAlign = 'center';
+
+      // 画像エラー時は img を隠して fallback を表示
+      img.onerror = function() {
+        img.style.display = 'none';
+        fallback.style.display = 'block';
+        console.warn('coupon-ready image failed to load:', img.src);
+      };
+      // 画像ロード成功時は確実に表示（念のため）
+      img.onload = function() {
+        fallback.style.display = 'none';
+        img.style.display = 'block';
+      };
+
+      el.appendChild(img);
+      el.appendChild(fallback);
+      document.body.appendChild(el);
+    }
+
+    // remove hidden class if present
+    el.classList.remove('hidden');
+    // ensure visible in inline style
+    el.style.display = 'flex';
+  } catch (e) {
+    console.warn('showCouponReadyImage failed', e);
+  }
+}
+function hideCouponReadyImage() {
+  try {
+    const el = document.getElementById('coupon-ready-overlay');
+    if (el) {
+      // hide via inline style and class
+      el.classList.add('hidden');
+      el.style.display = 'none';
+    }
+  } catch (e) {
+    // noop
+  }
+}
+
+/* ---------------------------
+   クーポン一覧レンダリング
+   --------------------------- */
 function renderCoupons() {
   const container = document.getElementById("coupon-container");
   if (!container) return;
@@ -93,7 +173,6 @@ function renderCoupons() {
   const userId = localStorage.getItem("userId");
   const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
 
-  // 未使用を先に表示（used フラグが true のものは後へ）
   const sorted = coupons.slice().sort((a, b) => Number(!!a.used) - Number(!!b.used));
 
   sorted.forEach(coupon => {
@@ -177,12 +256,11 @@ function renderCoupons() {
     container.appendChild(card);
   });
 
-  // 「使う」ボタンのイベント登録（重複登録は防ぐ）
   document.querySelectorAll(".use-button").forEach(button => {
     if (button.dataset.handlerAttached === "1") return;
     button.dataset.handlerAttached = "1";
     button.addEventListener("click", () => {
-      hideOutsideKeyError(); // モーダルを開く前に外側エラーを消す
+      hideOutsideKeyError();
       const storeId = button.dataset.id;
       const userId = localStorage.getItem("userId");
       const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
@@ -192,10 +270,14 @@ function renderCoupons() {
         return;
       }
 
-      // restaurants から store を探して currentStore にセット
       const restaurants = JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]") || [];
       const store = restaurants.find(r => r.storeId === storeId) || null;
       currentStore = store;
+
+      // --- 互換: restaurants.js の prev/next ハンドラが参照できるようグローバル公開 ---
+      try { window.currentStore = store; } catch (e) { /* noop */ }
+      // 共有インデックスを初期化（restaurants.js の currentPhotoIndex を使うのでこちらは補助）
+      window.__modalPhotoIndex = 0;
 
       const modal = document.getElementById("coupon-modal");
       if (!modal) {
@@ -208,11 +290,9 @@ function renderCoupons() {
       modal.querySelector(".modal-conditions").innerHTML = (coupon.conditions || []).map(c => `<li>${c}</li>`).join("");
       modal.querySelector(".modal-expiry").textContent = `有効期限：${coupon.expiry}`;
 
-      // key input 初期化 + フォーカス（存在すれば）
       const keyInputEl = modal.querySelector("#key-input");
       if (keyInputEl) { try { keyInputEl.value = ""; keyInputEl.focus(); } catch (e) {} }
 
-      // モーダル内の補助フィードバック要素（保留表示はしない設計だが要素は確保）
       let keyFeedback = modal.querySelector("#key-feedback");
       if (!keyFeedback) {
         keyFeedback = document.createElement("div");
@@ -234,8 +314,13 @@ function renderCoupons() {
   if (loadingOverlay) loadingOverlay.classList.add("hidden");
 }
 
-// DOMContentLoaded: サーバ state 読込（あれば） + 確定ボタン登録 + 初回描画
+/* ---------------------------
+   DOMContentLoaded: 初期同期 + Confirm ボタン登録 + 初回描画
+   --------------------------- */
 document.addEventListener("DOMContentLoaded", async () => {
+  const loadingOverlay = document.getElementById("loading-overlay");
+  if (loadingOverlay) loadingOverlay.classList.remove("hidden");
+
   try {
     const userId = localStorage.getItem("userId");
     if (userId) {
@@ -258,23 +343,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   } catch (e) {
     console.warn("coupon.js: DOMContentLoaded pre-sync error:", e);
+  } finally {
+    if (loadingOverlay) loadingOverlay.classList.add("hidden");
   }
 
-  // 確定ボタン（クーポン使用確定）の登録（堅牢に）
+  // 確定ボタン登録
   try {
     const confirmBtn = document.querySelector(".confirm-use-button");
     if (confirmBtn) {
-      if (confirmBtn.dataset.handlerAttached === "1") {
-        // 既に登録済み
-      } else {
+      if (confirmBtn.dataset.handlerAttached !== "1") {
         confirmBtn.dataset.handlerAttached = "1";
         confirmBtn.addEventListener("click", async () => {
           try {
             const userId = localStorage.getItem("userId") || "未設定";
             const couponModal = document.getElementById("coupon-modal");
             const modalStoreId = couponModal && couponModal.dataset && couponModal.dataset.storeId ? couponModal.dataset.storeId : null;
-
-            // 優先: modal.dataset.storeId -> currentStore -> abort
             let storeId = modalStoreId || (currentStore && (currentStore.storeId || currentStore.id)) || null;
             if (!storeId) {
               console.warn("confirm-use: no storeId found; aborting");
@@ -283,51 +366,45 @@ document.addEventListener("DOMContentLoaded", async () => {
               return;
             }
 
-            // 最新のローカル状態を参照
             const coupons = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
             const restaurants = JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]") || [];
             const coupon = coupons.find(c => c && (c.storeId === storeId || c.id === storeId || (c.baseId && c.baseId === storeId.split("-")[0])));
             const store = restaurants.find(r => r && (r.storeId === storeId || r.id === storeId || (r.baseId && r.baseId === storeId.split("-")[0]))) || null;
 
-            // 保険: currentStore を更新
             if (store) currentStore = store;
 
             const storeName = (coupon && coupon.storeName) ? coupon.storeName : (store && store.name) ? store.name : "未設定";
             const prizeType = (coupon && coupon.type) ? coupon.type : (store && store.prizeType) ? store.prizeType : "未設定";
             const salonId = (store && store.salonId) ? store.salonId : (localStorage.getItem("salonId") || "未設定");
 
-            // --- キー検証ロジック ---
+            // --- キー検証（store.key or coupon.key を検証対象） ---
             const keyInput = couponModal ? couponModal.querySelector("#key-input") : null;
-            // modal 内の補助要素（成功メッセージは出さない）
             let keyFeedback = couponModal ? couponModal.querySelector("#key-feedback") : null;
             const enteredKey = keyInput && keyInput.value ? String(keyInput.value).trim() : "";
 
-            // store.key が存在する場合は照合を必須にする
-            if (store && store.key) {
+            const expectedKey = (store && store.key) ? String(store.key).trim() : ((coupon && coupon.key) ? String(coupon.key).trim() : null);
+
+            if (expectedKey) {
               if (enteredKey === "") {
-                // 空入力は外側に表示
                 showOutsideKeyError("使用キーを入力してください");
-                return; // 入力を促して中断
+                return;
               }
-              if (String(store.key) !== enteredKey) {
-                // 不一致は外側に表示（モーダル外）
+              if (expectedKey !== enteredKey) {
                 showOutsideKeyError("使用キーが異なります");
-                return; // キー不一致 → 中断
+                return;
               } else {
-                // 一致したら外側エラーは消して、そのまま成功フローへ（モーダル内の「ありがとうございます」は不要）
                 hideOutsideKeyError();
               }
             } else {
-              // キー未設定の店舗はそのまま通す
               hideOutsideKeyError();
             }
 
             console.log("confirm-use: resolved ->", { userId, storeId, storeName, prizeType, salonId });
 
-            // 表示：読み込み中の準備画像を出す（Thank You 表示が出るまで見せる）
+            // 読み込み演出を表示（Thank You 表示まで見せる）
             try { showCouponReadyImage(); } catch (e) { console.warn('showCouponReadyImage error', e); }
 
-            // mark -> send usage log (先にローカル反映)
+            // ローカル反映 → サーバ同期
             try {
               const markRes = await markCouponUsedAndSync(storeId);
               console.log("markCouponUsedAndSync result:", markRes);
@@ -335,14 +412,26 @@ document.addEventListener("DOMContentLoaded", async () => {
               console.warn("confirm-use: markCouponUsedAndSync failed:", err);
             }
 
+            // 送信用 storeId は「myCoupons に保存されたクーポンの storeId（variant）」を優先して使う
+            let logStoreId = storeId;
             try {
-              const sendRes = await sendUsageLog({ userId, storeId, storeName, prizeType, salonId });
+              const couponsList = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
+              const couponEntry = couponsList.find(c => c && (c.storeId === storeId || c.id === storeId || (c.baseId && c.baseId === storeId.split("-")[0])));
+              if (couponEntry && couponEntry.storeId) {
+                logStoreId = couponEntry.storeId;
+              }
+            } catch (e) {
+              // フォールバック: 何か失敗しても元の storeId を使う
+              console.warn("logStoreId resolution failed, using resolved storeId:", e);
+            }
+
+            try {
+              const sendRes = await sendUsageLog({ userId, storeId: logStoreId, storeName, prizeType, salonId });
               console.log("sendUsageLog result:", sendRes);
             } catch (e) {
               console.warn("sendUsageLog failed after mark:", e);
             }
 
-            // 成功時は即座に Thanks を表示（モーダルは閉じる）
             try {
               const m = couponModal || document.getElementById("coupon-modal");
               if (m) m.classList.add("hidden");
@@ -354,7 +443,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                 try { if (typeof window.renderRestaurants === "function") window.renderRestaurants(); } catch (e) {}
               });
             } catch (e) {
-              // fallback
               try { renderCoupons(); } catch (err) { console.warn("renderCoupons fallback failed:", err); }
             }
           } catch (err) {
@@ -373,42 +461,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   try { renderCoupons(); } catch (e) { console.warn("initial renderCoupons failed:", e); }
 });
 
-function showCouponReadyImage() {
-  try {
-    // 既存要素があれば再利用、なければ body に作る（HTML に既に置いた場合は既存要素を使う）
-    let el = document.getElementById('coupon-ready-overlay');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'coupon-ready-overlay';
-      el.className = 'coupon-ready-overlay';
-      el.style.pointerEvents = 'none';
-      const img = document.createElement('img');
-      img.src = 'images/coupon-ready.png';
-      img.alt = '準備中';
-      img.className = 'coupon-ready-img';
-      el.appendChild(img);
-      document.body.appendChild(el);
-    }
-    el.classList.remove('hidden');
-  } catch (e) {
-    console.warn('showCouponReadyImage failed', e);
-  }
-}
-
-function hideCouponReadyImage() {
-  try {
-    const el = document.getElementById('coupon-ready-overlay');
-    if (el) el.classList.add('hidden');
-  } catch (e) {
-    // noop
-  }
-}
-
-// ---- showThankYou: 使用完了時のアニメ風表示 ----
+/* ---------------------------
+   showThankYou: 読み込み画像を消して祝表示
+   --------------------------- */
 function showThankYou(callback) {
-  // Thank You 表示直前に読み込み画像を消す（ユーザが見ているのは読み込み画像 → 祝表示へ遷移）
-  try { hideCouponReadyImage(); } catch (e) { /* noop */ }
-
+  try { hideCouponReadyImage(); } catch (e) {}
   const thankYou = document.createElement("div");
   thankYou.textContent = "🎉 Thank You!";
   thankYou.style.position = "fixed";
@@ -441,7 +498,20 @@ function showThankYou(callback) {
   }, 1400);
 }
 
-// --- openModal / photo helpers ---
+/* ---------------------------
+   以降は既存のヘルパー群（openModal 等）...
+   （ここから下は既存のファイルと同じ内容を維持） 
+   --------------------------- */
+
+/* 以下は既存コードを省略表示しませんが、上の行より下に
+   あなたの既存ファイルの残り全体（openModal, playFullScreenVideo,
+   postLog, sendUsageLog, markCouponUsedAndSync, requestSaveSnapshotSafe,
+   bindModalClose 等）をそのまま残して下さい。 */
+
+
+/* ---------------------------
+   レストランモーダル / 写真ヘルパー
+   --------------------------- */
 let currentPhotoIndex = 0;
 let currentStore = null;
 
@@ -508,7 +578,9 @@ function playFullScreenVideo(url) {
   v.addEventListener("ended", () => container.remove());
 }
 
-// --- logging helpers (Apps Script expects form-urlencoded 'data=') ---
+/* ---------------------------
+   ロギング / サーバ同期ヘルパー
+   --------------------------- */
 function postLog(payload) {
   if (!LOG_URL) {
     console.warn("postLog: LOG_URL not configured — skipping", payload);
@@ -548,7 +620,9 @@ function sendUsageLog({ userId, storeId, storeName, prizeType, salonId }) {
   return postLog(payload).then(res => { console.log("sendUsageLog ok:", res); return res; }).catch(err => { console.error("sendUsageLog error:", err); throw err; });
 }
 
-// --- markCouponUsedAndSync: ローカル反映 → render → サーバ同期（安全ラッパーで） ---
+/* ---------------------------
+   markCouponUsedAndSync
+   --------------------------- */
 function markCouponUsedAndSync(couponIdentifier) {
   try {
     const userId = localStorage.getItem("userId");
@@ -608,7 +682,9 @@ function markCouponUsedAndSync(couponIdentifier) {
   }
 }
 
-// ---- requestSaveSnapshotSafe: セーフティラッパー（重複保存や適用中の衝突回避） ----
+/* ---------------------------
+   requestSaveSnapshotSafe
+   --------------------------- */
 function requestSaveSnapshotSafe(snapshot, immediate) {
   window.__applyingServerState = window.__applyingServerState || false;
   window.__lastSavedSnapshotJson = window.__lastSavedSnapshotJson || null;
@@ -674,7 +750,9 @@ function requestSaveSnapshotSafe(snapshot, immediate) {
 }
 window.requestSaveSnapshotSafe = requestSaveSnapshotSafe;
 
-// モーダルの閉じボタンバインド（存在すれば）
+/* ---------------------------
+   モーダル閉じボタンバインド
+   --------------------------- */
 (function bindModalClose() {
   const close = document.querySelector(".close-button");
   if (close) close.addEventListener("click", () => {
@@ -690,5 +768,41 @@ window.requestSaveSnapshotSafe = requestSaveSnapshotSafe;
     const modal = document.getElementById("coupon-modal");
     if (modal) modal.classList.add("hidden");
     hideOutsideKeyError();
+  });
+})();
+
+// -----------------------------
+// coupon モーダル専用: prev/next ハンドラ（coupon.js 内）
+// 挿入場所: updatePhoto/openModal 定義の直後に置く
+// -----------------------------
+(function bindCouponPhotoNavHandlers(){
+  const prevBtn = document.getElementById("prev-photo");
+  const nextBtn = document.getElementById("next-photo");
+
+  function _getImagesFromCurrentStore() {
+    try {
+      if (currentStore && currentStore.images && currentStore.images.length) return currentStore.images;
+      // fallback: try window.currentStore (if restaurants.js 側でセットされている場合)
+      if (window && window.currentStore && window.currentStore.images && window.currentStore.images.length) return window.currentStore.images;
+    } catch (e) { /* noop */ }
+    return null;
+  }
+
+  if (prevBtn) prevBtn.addEventListener("click", (e) => {
+    try {
+      const images = _getImagesFromCurrentStore();
+      if (!images || images.length === 0) return;
+      currentPhotoIndex = (currentPhotoIndex - 1 + images.length) % images.length;
+      updatePhoto(images);
+    } catch (err) { console.warn("coupon prev-photo error:", err); }
+  });
+
+  if (nextBtn) nextBtn.addEventListener("click", (e) => {
+    try {
+      const images = _getImagesFromCurrentStore();
+      if (!images || images.length === 0) return;
+      currentPhotoIndex = (currentPhotoIndex + 1) % images.length;
+      updatePhoto(images);
+    } catch (err) { console.warn("coupon next-photo error:", err); }
   });
 })();

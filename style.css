@@ -805,7 +805,7 @@ html, body {
   font-size: 5vw;
   margin-bottom: 10px;
   border: 0.5px solid black;
-  background-color: rgb(244, 248, 187);
+  background-color: rgb(248, 188, 109);
 }
 
 .coupon-actions {
@@ -842,7 +842,7 @@ html, body {
 }
 
 /* ローディング表示用スタイル */
-.loading-overlay {
+.loading-overlay,#coupon-ready-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -852,10 +852,10 @@ html, body {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 9999;
+  z-index: 99999;
 }
 
-.loading-image {
+.loading-image,.coupon-ready-img {
   width: 80%;
   max-width: 500px;
   height: auto;
@@ -864,29 +864,6 @@ html, body {
 
 .loading-overlay.hidden {
   display: none;
-}
-
-/* --- クーポン準備画像オーバーレイ --- */
-#coupon-ready-overlay {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 950;
-  pointer-events: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* 非表示は .hidden で制御（既存の .hidden を利用） */
-}
-
-#coupon-ready-overlay .coupon-ready-img {
-  width: 80vw;           /* 画面横幅の80% */
-  max-width: 1200px;
-  height: auto;
-  display: block;
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
 }
 
 .coupon-card.used {
@@ -1239,7 +1216,7 @@ html, body {
   font-size: 5vw;
   margin-bottom: 6px;
   border: 0.5px solid black;
-  background-color: rgb(244, 248, 187);
+  background-color: rgb(248, 188, 109);
 }
 
 .modal-key {

@@ -431,17 +431,33 @@ function updatePhoto(images) {
   }
   photo.src = images[currentPhotoIndex] || images[0] || PLACEHOLDER_IMG;
 }
+
+// --- 写真ナビ（prev/next）: 他スクリプトからの呼び出しも考慮した堅牢版 ---
 const prevBtn = safeGetById("prev-photo");
 const nextBtn = safeGetById("next-photo");
+
+// modal 用のストアを決定（restaurants の内部 currentStoreForModal を優先、無ければ window.currentStore を参照）
+function _getModalStoreForPhotos() {
+  try {
+    if (typeof currentStoreForModal !== 'undefined' && currentStoreForModal) return currentStoreForModal;
+  } catch (e) {}
+  if (window && window.currentStore) return window.currentStore;
+  return null;
+}
+
 if (prevBtn) prevBtn.addEventListener("click", () => {
-  if (!currentStoreForModal || !currentStoreForModal.images) return;
-  currentPhotoIndex = (currentPhotoIndex - 1 + currentStoreForModal.images.length) % currentStoreForModal.images.length;
-  updatePhoto(currentStoreForModal.images);
+  const s = _getModalStoreForPhotos();
+  if (!s || !s.images || s.images.length === 0) return;
+  currentPhotoIndex = (currentPhotoIndex - 1 + s.images.length) % s.images.length;
+  const photo = safeGetById("modal-photo");
+  if (photo) photo.src = s.images[currentPhotoIndex] || PLACEHOLDER_IMG;
 });
 if (nextBtn) nextBtn.addEventListener("click", () => {
-  if (!currentStoreForModal || !currentStoreForModal.images) return;
-  currentPhotoIndex = (currentPhotoIndex + 1) % currentStoreForModal.images.length;
-  updatePhoto(currentStoreForModal.images);
+  const s = _getModalStoreForPhotos();
+  if (!s || !s.images || s.images.length === 0) return;
+  currentPhotoIndex = (currentPhotoIndex + 1) % s.images.length;
+  const photo = safeGetById("modal-photo");
+  if (photo) photo.src = s.images[currentPhotoIndex] || PLACEHOLDER_IMG;
 });
 
 // モーダルの閉じるボタン

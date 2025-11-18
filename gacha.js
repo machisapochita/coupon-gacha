@@ -252,6 +252,31 @@ const baseRestaurantData = [
   }
 ];
 
+// -----------------------------
+// variant storeId 解決ヘルパー
+// baseId + prizeType から確定的に variant storeId を返す
+// 例: baseId 'bar001', prizeType 'rare' -> 'bar001-2'
+// -----------------------------
+function resolveVariantStoreId(storeOrBaseId, prizeType) {
+  try {
+    // 入力は store オブジェクトか baseId の文字列を受け取る
+    let baseId = null;
+    if (!storeOrBaseId) return null;
+    if (typeof storeOrBaseId === 'string') baseId = storeOrBaseId;
+    else baseId = storeOrBaseId.baseId || (storeOrBaseId.storeId ? String(storeOrBaseId.storeId).split('-')[0] : null);
+
+    if (!baseId) return null;
+
+    const map = { normal: '1', rare: '2', 'last-one': '3' };
+    const key = prizeType || (storeOrBaseId && storeOrBaseId.prizeType) || 'normal';
+    const suffix = map[key] || '1';
+    return `${baseId}-${suffix}`;
+  } catch (e) {
+    console.warn("resolveVariantStoreId failed:", e);
+    return null;
+  }
+}
+
 // --- START: automatically assign 5-digit keys to each base and build initialRestaurantData ---
 baseRestaurantData.forEach(base => {
   try {
@@ -276,11 +301,17 @@ window.initialRestaurantData = baseRestaurantData.flatMap(base => {
       name: (base.name || "") + (variants > 1 ? ` ${i}` : ""),
       town: base.town || "",
       prizeType: base.prizeType || (base.prize || "normal"),
+      // base 側では複数賞種を 'coupons' で持っているため店舗にもそのまま渡す
+      coupons: base.coupons || null,
+      // 互換用に単一 coupon が base にあれば設定（あれば store.coupon として使われる）
       coupon: base.coupon || null,
       unlocked: !!base.unlocked,
       images: base.images || [],
       hpUrl: base.hpUrl || null,
       mapUrl: base.mapUrl || null,
+      // PR 動画 URL を各店舗にも渡す（これがないと PR を再生できない）
+      videoUrl: base.videoUrl || null,
+      hours: base.hours || null,
       // base に設定した key を各店舗に渡す
       key: base.key
     });
@@ -288,42 +319,94 @@ window.initialRestaurantData = baseRestaurantData.flatMap(base => {
   return out;
 });
 
-// マイグレーション: 既存の localStorage の restaurantData_{userId} に key を注入（あれば）
-(function migrateRestaurantKeys() {
+// マイグレーション関数（per-user の restaurantData_{uid} に必要フィールドを注入）
+function migrateRestaurantKeysEnhForUser(userId) {
   try {
-    const userId = localStorage.getItem("userId");
-    if (!userId) return;
+    userId = userId || localStorage.getItem("userId");
+    if (!userId) return false;
     const storageKey = `restaurantData_${userId}`;
-    const existing = JSON.parse(localStorage.getItem(storageKey) || "[]");
-    if (!Array.isArray(existing) || existing.length === 0) return;
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return false;
 
-    const baseKeyMap = {};
-    baseRestaurantData.forEach(b => { if (b && b.baseId) baseKeyMap[b.baseId] = b.key; });
+    let existing;
+    try { existing = JSON.parse(raw || "[]"); } catch (e) { existing = []; }
+    if (!Array.isArray(existing) || existing.length === 0) return false;
+
+    const baseMap = {};
+    (baseRestaurantData || []).forEach(b => { if (b && b.baseId) baseMap[b.baseId] = b; });
 
     let changed = false;
     const updated = existing.map(s => {
-      if (s && s.baseId && baseKeyMap[s.baseId] && String(s.key) !== String(baseKeyMap[s.baseId])) {
-        s.key = baseKeyMap[s.baseId];
-        changed = true;
+      if (!s || typeof s !== 'object') return s;
+
+      // baseId 推測
+      const guessedBaseId = s.baseId || (typeof s.storeId === 'string' ? s.storeId.split('-')[0] : null);
+      const base = (guessedBaseId && baseMap[guessedBaseId]) ? baseMap[guessedBaseId] : null;
+
+      if (base) {
+        const fields = ['videoUrl','coupons','coupon','images','hpUrl','mapUrl','hours','key','name','town'];
+        for (const f of fields) {
+          try {
+            const hasField = typeof s[f] !== 'undefined' && s[f] !== null && !(typeof s[f] === 'string' && s[f].trim() === '');
+            if (!hasField && typeof base[f] !== 'undefined') {
+              s[f] = JSON.parse(JSON.stringify(base[f]));
+              changed = true;
+            }
+          } catch (e) { /* ignore per-field error */ }
+        }
+
+        // prizeType があれば対応する coupon を補う
+        try {
+          if ((!s.coupon || Object.keys(s.coupon || {}).length === 0) && s.prizeType && base.coupons && base.coupons[s.prizeType]) {
+            s.coupon = JSON.parse(JSON.stringify(base.coupons[s.prizeType]));
+            changed = true;
+          }
+        } catch (e) {}
+      } else {
+        // base がない場合でも key を補う試み
+        try {
+          if (!s.key && typeof s.storeId === 'string') {
+            const prefix = s.storeId.split('-')[0];
+            const b = (baseRestaurantData || []).find(x => x.baseId === prefix);
+            if (b && b.key) { s.key = b.key; changed = true; }
+          }
+        } catch (e) {}
       }
+
       return s;
     });
 
     if (changed) {
       localStorage.setItem(storageKey, JSON.stringify(updated));
-      console.log("migrateRestaurantKeys: injected keys into", storageKey);
+      console.info("migrateRestaurantKeysEnhForUser: injected missing fields into", storageKey);
+    } else {
+      console.info("migrateRestaurantKeysEnhForUser: no changes needed for", storageKey);
     }
+    return changed;
   } catch (e) {
-    console.warn("migrateRestaurantKeys failed:", e);
+    console.warn("migrateRestaurantKeysEnhForUser failed:", e);
+    return false;
   }
-})();
-// --- END: key assignment + initialRestaurantData + migration ---
+}
+
+// 即時実行（ファイル読み込み直後に per-user データが既にあれば注入）
+try { migrateRestaurantKeysEnhForUser(); } catch (e) { /* ignore */ }
 
 // --- 追加: ページ初期化（UI更新をここで一元化） ---
 function initGachaUI() {
   try {
     // ensure per-user restaurant data exists
     try { window.initializeRestaurantData && window.initializeRestaurantData(); } catch(e){}
+
+    // ensure per-user data exists, then run migration to backfill fields
+    try {
+      // initializeRestaurantData may create per-user restaurantData_{uid}
+      window.initializeRestaurantData && window.initializeRestaurantData();
+      // run migration again now that per-user key exists
+      migrateRestaurantKeysEnhForUser();
+    } catch (e) {
+      console.warn("initGachaUI: migration run failed", e);
+    }
 
     // status area (残回数・賞種カウント) を必ず更新
     try { updateStatusArea(); } catch(e) { console.warn("updateStatusArea failed:", e); }
@@ -342,13 +425,33 @@ function initGachaUI() {
   }
 }
 
-// DOMContentLoaded 時に initGachaUI を確実に呼ぶ（既存の safeGachaInit でも呼ばれる）
+// DOMContentLoaded 時に initGachaUI を確実に呼ぶ（loading-overlay を末尾に移動して表示）
 document.addEventListener("DOMContentLoaded", async () => {
+  // 該当オーバーレイを取得（無ければ null）
+  const loadingOverlay = (typeof document !== "undefined") ? document.getElementById("loading-overlay") : null;
   try {
+    if (loadingOverlay) {
+      try {
+        // 1) 要素を body の末尾に移動して stacking を安定化
+        try { document.body.appendChild(loadingOverlay); } catch(e) { /* ignore */ }
+
+        // 2) 念のためインラインで z-index を強制（CSS の上書き回避）
+        try { loadingOverlay.style.zIndex = "99999"; } catch(e) {}
+
+        // 3) 表示
+        try { loadingOverlay.classList.remove("hidden"); } catch(e) { loadingOverlay.style.display = "flex"; }
+      } catch(e) { console.warn("loading-overlay show failed:", e); }
+    }
+
     // initGachaUI が非同期処理を含む可能性がある場合に await しても安全
     await (typeof initGachaUI === "function" ? initGachaUI() : Promise.resolve());
   } catch (e) {
     console.warn("DOMContentLoaded initGachaUI failed:", e);
+  } finally {
+    // 隠す（存在チェック付き）
+    if (loadingOverlay) {
+      try { loadingOverlay.classList.add("hidden"); } catch(e) { loadingOverlay.style.display = "none"; }
+    }
   }
 });
 
@@ -414,11 +517,60 @@ function startGachaSequence() {
   prVideoContainer.classList.add("hidden");
   if (loopContainer) loopContainer.classList.add("hidden");
 
+  // --- gacha 用読み込みオーバーレイ参照（存在する場合） ---
+  const loadingOverlay = (typeof document !== "undefined") ? document.getElementById("loading-overlay") : null;
+  try { if (loadingOverlay) { try { loadingOverlay.classList.remove("hidden"); } catch(e) { loadingOverlay.style.display = "flex"; } } } catch(e){}
+
   // 1) 抽選を先に行う（賞種と店舗）
   const prizeType = drawPrizeType();
   const store = drawStore(prizeType);
 
+  // 抽選で選ばれた store が base 情報を欠いている可能性があるため補完する
+  try {
+    // store.baseId がなければ storeId のプレフィックスから推測する
+    const guessedBaseId = store && (store.baseId || (typeof store.storeId === 'string' ? store.storeId.split('-')[0] : null));
+    const base = (window.baseRestaurantData || []).find(b => b.baseId === guessedBaseId);
+
+    if (base) {
+      // videoUrl / coupons を補う
+      if (!store.videoUrl && base.videoUrl) store.videoUrl = base.videoUrl;
+      if (!store.coupons && base.coupons) store.coupons = JSON.parse(JSON.stringify(base.coupons));
+      if ((!store.images || store.images.length === 0) && base.images) store.images = JSON.parse(JSON.stringify(base.images));
+      if (!store.hours && base.hours) store.hours = base.hours;
+      if (!store.hpUrl && base.hpUrl) store.hpUrl = base.hpUrl;
+      if (!store.mapUrl && base.mapUrl) store.mapUrl = base.mapUrl;
+      if (!store.baseId && base.baseId) store.baseId = base.baseId;
+    }
+
+    // 重要: 当選した賞種に対応する coupon フィールドを必ず上書きする（既存の単一 coupon があっても差し替える）
+    if (prizeType) {
+      // まず店舗の coupons マップから
+      if (store && store.coupons && store.coupons[prizeType]) {
+        store.coupon = JSON.parse(JSON.stringify(store.coupons[prizeType]));
+      } else if (base && base.coupons && base.coupons[prizeType]) {
+        // 次に base の coupons から
+        store.coupon = JSON.parse(JSON.stringify(base.coupons[prizeType]));
+      } else {
+        // 最後のフォールバックは既存の store.coupon のまま（無ければデフォルト）
+        if (!store.coupon) store.coupon = { discount: 0, conditions: [], expiry: "" };
+      }
+    }
+  } catch (e) {
+    console.warn("gacha: failed to enrich/store-assign coupon from base data", e);
+  }
+
   console.log("抽選された賞種:", prizeType);
+  // 追加（デバッグ）: 当選直後に選ばれた store の概要を出力
+  try {
+    console.info("DBG: pre-addCoupon store summary:", {
+      storeId: store && store.storeId,
+      baseId: store && store.baseId,
+      prizeType,
+      hasStoreCoupons: !!(store && store.coupons),
+      storeCouponsKeys: store && store.coupons ? Object.keys(store.coupons) : null,
+      hasStoreCouponField: !!(store && store.coupon)
+    });
+  } catch(e) { console.warn("DBG log failed", e); }
   console.log("選ばれた店舗:", store);
 
   if (!store) {
@@ -442,6 +594,22 @@ function startGachaSequence() {
   store.unlocked = true;
   updateRestaurantData(store);
   addCoupon(store, prizeType);
+
+  // --- variant mapping apply ---
+  try {
+    // resolveVariantStoreId は gacha.js 内に追加済み、なければ別途追加してください
+    const resolvedVariantId = resolveVariantStoreId(store, prizeType);
+    if (resolvedVariantId) {
+      // variantStoreId を保存し、以降の snapshot/log で使われるように store.storeId を上書き
+      store.variantStoreId = resolvedVariantId;
+      store.storeId = resolvedVariantId;
+      console.info("DBG: applied variant storeId:", resolvedVariantId);
+    } else {
+      console.info("DBG: variant resolution returned null; leaving store.storeId as-is:", store && store.storeId);
+    }
+  } catch (e) {
+    console.warn("variant mapping apply failed:", e);
+  }
 
   // ここでガチャ実行ログを送る（エラーがあっても動作継続）
   try {
@@ -534,6 +702,9 @@ function startGachaSequence() {
     // 3) 当選店舗の PR 動画を再生
     if (store.videoUrl) {
       try {
+        // PR の事前読み込みを始める前にオーバーレイを表示（ユーザーに読み込み中を明示）
+        try { if (loadingOverlay) { loadingOverlay.classList.remove("hidden"); } } catch(e) { if (loadingOverlay) loadingOverlay.style.display = "flex"; }
+
         // 事前読み込み（可能な限り）してから再生
         await preloadVideo(prVideo, store.videoUrl, { preload: "auto", timeout: 7000 });
       } catch (e) {
@@ -556,17 +727,21 @@ function startGachaSequence() {
 
       try {
         const prRes = await tryPlayWithSoundFallback(prVideo);
+        // PR の再生が始まったのでオーバーレイを隠す
+        try { if (loadingOverlay) { loadingOverlay.classList.add("hidden"); } } catch(e) { if (loadingOverlay) loadingOverlay.style.display = "none"; }
         if (prRes && prRes.muted) {
           console.info("prVideo playing muted (user gesture required to enable audio)");
         }
       } catch (err) {
         console.warn("prVideo play failed entirely:", err);
-        // 再生できない場合は直ちにクーポン表示に移行
+        // 再生できない場合はオーバーレイを隠して直ちにクーポン表示に移行
+        try { if (loadingOverlay) { loadingOverlay.classList.add("hidden"); } } catch(e) { if (loadingOverlay) loadingOverlay.style.display = "none"; }
         prVideoContainer.classList.add("hidden");
         openCouponPopupWithLoop(prizeType, store);
       }
     } else {
       console.warn("動画URLが未設定の店舗です");
+      try { if (loadingOverlay) { loadingOverlay.classList.add("hidden"); } } catch(e) { if (loadingOverlay) loadingOverlay.style.display = "none"; }
       openCouponPopupWithLoop(prizeType, store);
     }
   };
@@ -600,13 +775,16 @@ function startGachaSequence() {
 
     try {
       const res = await tryPlayWithSoundFallback(gachaVideo);
+      // 再生が始まったので読み込みオーバーレイを隠す
+      try { if (loadingOverlay) { loadingOverlay.classList.add("hidden"); } } catch(e) { if (loadingOverlay) loadingOverlay.style.display = "none"; }
       if (res && res.muted) {
         console.info("gachaVideo playing muted (user gesture required to enable audio)");
       }
       // 再生が始まったらそのままスキップボタンは有効（表示済み）
     } catch (err) {
       console.warn("gachaVideo play failed entirely:", err);
-      // 再生できない場合は直接 PR に遷移
+      // 再生できない場合はオーバーレイを隠して直接 PR に遷移
+      try { if (loadingOverlay) { loadingOverlay.classList.add("hidden"); } } catch(e) { if (loadingOverlay) loadingOverlay.style.display = "none"; }
       removeSkipButton();
       onGachaEnded();
     }
@@ -668,25 +846,68 @@ function addCoupon(store, prizeType) {
   const key = `myCoupons_${userId}`;
   const coupons = JSON.parse(localStorage.getItem(key)) || [];
 
-  // ✅ storeId がすでに存在するかチェック
+  // storeId がすでに存在するかチェック
   const alreadyExists = coupons.some(c => c.storeId === store.storeId);
   if (alreadyExists) {
     console.warn("すでにこの店舗のクーポンを所持しています:", store.storeId);
     return;
   }
 
-  // store.coupon があることを期待（なければ基本情報を埋める）
-  if (!store.coupon) {
-    console.warn("store.coupon が未設定のため既定値を使用します:", store.storeId);
-    store.coupon = { discount: 0, conditions: [], expiry: "" };
+  // デバッグログ：入力確認
+  try {
+    console.info("DBG addCoupon called:", {
+      storeId: store && store.storeId,
+      baseId: store && store.baseId,
+      prizeType,
+      hasStoreCoupons: !!(store && store.coupons),
+      storeCouponsKeys: store && store.coupons ? Object.keys(store.coupons) : null,
+      hasStoreCouponField: !!(store && store.coupon)
+    });
+  } catch (e) {}
+
+  // 1) 優先ソース: 店舗の coupons[prizeType]
+  let couponForPrize = null;
+  try {
+    if (store && store.coupons && prizeType && store.coupons[prizeType]) {
+      couponForPrize = JSON.parse(JSON.stringify(store.coupons[prizeType]));
+      console.info("DBG addCoupon: using store.coupons for prizeType", prizeType, "storeId", store.storeId);
+    } else {
+      // 2) 次に baseRestaurantData の該当 base の coupons[prizeType]
+      const guessedBaseId = store && (store.baseId || (typeof store.storeId === 'string' ? store.storeId.split('-')[0] : null));
+      const base = (window.baseRestaurantData || []).find(b => b.baseId === guessedBaseId);
+      if (base && base.coupons && prizeType && base.coupons[prizeType]) {
+        couponForPrize = JSON.parse(JSON.stringify(base.coupons[prizeType]));
+        console.info("DBG addCoupon: using base.coupons for prizeType", prizeType, "baseId", guessedBaseId, "storeId", store.storeId);
+      } else {
+        // 3) それでもなければ既存の store.coupon（単体定義）を利用
+        if (store && store.coupon) {
+          try { couponForPrize = JSON.parse(JSON.stringify(store.coupon)); }
+          catch (e) { couponForPrize = store.coupon; }
+          console.info("DBG addCoupon: falling back to store.coupon field for storeId", store.storeId);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("addCoupon: coupon derive failed:", e);
+    couponForPrize = null;
   }
 
+  // 4) 最後に既定値
+  if (!couponForPrize) {
+    console.warn("store.coupon が未設定のため既定値を使用します:", store && store.storeId);
+    couponForPrize = { discount: 0, conditions: [], expiry: "" };
+  }
+
+  // coupon の storeId は variant を優先して決定（存在しなければ既存 store.storeId を使う）
+  const couponStoreId = (store && (store.variantStoreId || store.storeId)) ? (store.variantStoreId || store.storeId) : (store && store.baseId ? `${store.baseId}-1` : (store && store.storeId ? store.storeId : 'unknown'));
+
   const newCoupon = {
-    storeId: store.storeId,
-    storeName: store.name,
-    discount: store.coupon.discount,
-    conditions: store.coupon.conditions,
-    expiry: store.coupon.expiry,
+    storeId: couponStoreId,
+    baseId: store && store.baseId ? store.baseId : (couponStoreId && couponStoreId.split ? couponStoreId.split('-')[0] : undefined),
+    storeName: store && store.name ? store.name : couponForPrize.storeName || "未設定",
+    discount: couponForPrize.discount,
+    conditions: couponForPrize.conditions,
+    expiry: couponForPrize.expiry,
     type: prizeType,
     used: false
   };
@@ -694,7 +915,9 @@ function addCoupon(store, prizeType) {
   coupons.push(newCoupon);
   localStorage.setItem(key, JSON.stringify(coupons));
 
-  // ここに追加（ローカル保存の直後に snapshot を確実に送る）
+  console.info("DBG addCoupon: pushed newCoupon", newCoupon);
+
+  // snapshot 保存・UI 更新等は従来通り
   try {
     const uid = localStorage.getItem('userId');
     if (typeof saveStateSnapshotNow === 'function') {
@@ -706,7 +929,6 @@ function addCoupon(store, prizeType) {
     console.warn('addCoupon: snapshot trigger failed', e);
   }
 
-  // UI の合計金額を更新（クーポン追加直後に反映）
   try {
     const totalAmount = coupons.reduce((sum, c) => sum + (c.discount || 0), 0);
     updateCouponSummary(totalAmount);
@@ -714,7 +936,6 @@ function addCoupon(store, prizeType) {
     console.warn("updateCouponSummary failed:", e);
   }
 
-  // サーバへ状態を保存（同期）：必ず呼ぶ
   try {
     const snapshot = {
       coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
@@ -728,7 +949,6 @@ function addCoupon(store, prizeType) {
     console.warn("snapshot/save failed:", e);
   }
 
-  // たとえば addCoupon 内のローカル保存直後に追加：
   try {
     const uid = localStorage.getItem("userId");
     if (uid) {
@@ -737,7 +957,6 @@ function addCoupon(store, prizeType) {
         restaurantData: JSON.parse(localStorage.getItem(`restaurantData_${uid}`) || "[]"),
         gachaState: JSON.parse(localStorage.getItem(`gachaState_${uid}`) || "{}")
       };
-      // updatedAt は saveGachaStateToServer 内で付与されるが、ここで確実に渡す
       saveGachaStateToServer(snapshot).then(res => {
         console.log("addCoupon: saved server snapshot", res);
       }).catch(err => {
@@ -822,36 +1041,50 @@ function drawPrizeType() {
 function drawStore(prizeType) {
   const userId = localStorage.getItem("userId");
   const gachaKey = `gachaState_${userId}`;
-  const restaurantKey = `restaurantData_${userId}`;
 
-  // 変更: 直接 localStorage を読むのではなく、汎用ユーティリティ経由で取得する
-  // getRestaurantListForUser は legacy キーや global 初期データをフォールバックして返す
+  // getRestaurantListForUser 経由で確実に店舗一覧を取得
   const allStores = getRestaurantListForUser(userId) || [];
   const state = JSON.parse(localStorage.getItem(gachaKey)) || { drawnStoreIds: [] };
 
-  // 🎯 該当賞種かつ未排出の店舗だけ抽出
-  const drawnBaseIds = state.drawnStoreIds.map(id => id.split("-")[0]);
+  // 抽選済みの baseId リスト（storeId の prefix を使って判定）
+  const drawnBaseIds = state.drawnStoreIds
+    .map(id => (typeof id === 'string' ? id.split('-')[0] : id))
+    .filter(Boolean);
 
-  const remainingStores = allStores.filter(store =>
-    store.prizeType === prizeType &&
-    !drawnBaseIds.includes(store.baseId)
-  );
+  // 賞種で絞らず、未排出の店舗だけを候補にする（賞種は当選時に付与）
+  const remainingStores = allStores.filter(store => {
+    if (!store) return false;
+    const storeBaseId = store.baseId || (typeof store.storeId === 'string' ? store.storeId.split('-')[0] : null);
+    return storeBaseId && !drawnBaseIds.includes(storeBaseId);
+  });
 
   if (remainingStores.length === 0) {
     console.warn(`抽選対象の店舗がありません（賞種: ${prizeType}）`);
     return null;
   }
 
-  // 🎯 ラストワン賞なら最初の店舗、それ以外はランダム抽選
+  // last-one は先頭を選ぶ、その他はランダム（既存仕様を維持）
   const selectedStore = prizeType === "last-one"
     ? remainingStores[0]
     : remainingStores[Math.floor(Math.random() * remainingStores.length)];
 
-  // 🎯 抽選済みIDとして記録
+  // 確実に baseId を持たせる
+  try {
+    if (selectedStore && !selectedStore.baseId && typeof selectedStore.storeId === 'string') {
+      selectedStore.baseId = selectedStore.storeId.split('-')[0];
+    }
+    // 当選した店舗に prizeType を付与しておく
+    selectedStore.prizeType = prizeType;
+    // unlock は呼び出し側でやっているためここでは付与だけでも良い
+  } catch (e) {
+    console.warn("drawStore: post-selection finalize failed", e);
+  }
+
+  // 排出記録を保存
   state.drawnStoreIds.push(selectedStore.storeId);
   localStorage.setItem(gachaKey, JSON.stringify(state));
 
-  // サーバに保存（drawnStoreIds 更新の反映）
+  // サーバへ snapshot 送信は既存の呼び出しを維持
   try {
     const snapshot = {
       coupons: JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]"),
