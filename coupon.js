@@ -2,6 +2,20 @@
 
 const LOG_URL = (typeof window !== "undefined" && window.LOG_URL) ? window.LOG_URL : "https://script.google.com/macros/s/AKfycbwk02U0POEPJfGWzmyn2TqzIpyX10-0WyfTKITw6gB8ceJa9vT_U1-EnEzg5vOAVjoU/exec";
 
+// プリロード用の再利用可能な Audio オブジェクト（存在すれば上書きしない）
+window.__couponUseAudio = window.__couponUseAudio || (function(){
+  try {
+    const a = new Audio('sound/coupon-use.mp3');
+    a.preload = 'auto';
+    // 事前読み込みを試みる（ブラウザが許可すればキャッシュされる）
+    try { a.load && a.load(); } catch(e) {}
+    return a;
+  } catch (e) {
+    console.warn('coupon audio preload failed', e);
+    return null;
+  }
+})();
+
 function prizeLabel(type) {
   switch (type) {
     case 'normal': return 'ノーマル賞';
@@ -224,12 +238,37 @@ function renderCoupons() {
       const introButton = card.querySelector(".intro-button");
       if (introButton) {
         introButton.addEventListener("click", (e) => {
-          e.stopPropagation();
+          try {
+            if (e && e.stopPropagation) e.stopPropagation();
+          } catch (e) {}
+
           const storeId = introButton.dataset.id;
-          const restaurantData = JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]");
-          const store = restaurantData.find(s => s.storeId === storeId);
-          if (!store) { alert("店舗情報が見つかりませんでした"); return; }
-          store.unlocked = true;
+          const restaurantData = JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]") || [];
+
+          // 1) まずは storeId で直接検索
+          let store = restaurantData.find(s => s.storeId === storeId);
+
+          // 2) 見つからなければ baseId でフォールバック（例: 'teishoku001-2' -> 'teishoku001'）
+          if (!store) {
+            const guessedBase = (storeId && typeof storeId === 'string' && storeId.indexOf('-') > -1) ? storeId.split('-')[0] : null;
+            if (guessedBase) {
+              store = restaurantData.find(s => s.baseId === guessedBase) || null;
+              if (store) {
+                console.info("coupon.js: introButton fallback found store by baseId", guessedBase, "for storeId", storeId);
+                // UI の一貫性を保つため、一時的に modal 用オブジェクトの storeId を variant にして渡す
+                store = Object.assign({}, store, { storeId: storeId });
+              }
+            }
+          }
+
+          if (!store) {
+            alert("店舗情報が見つかりませんでした");
+            return;
+          }
+
+          // used カード側では unlocked を付与してから開く
+          try { store.unlocked = true; } catch (e) {}
+
           openModal(store);
         });
       }
@@ -250,11 +289,38 @@ function renderCoupons() {
       `;
       const introButton = card.querySelector(".intro-button");
       if (introButton) {
-        introButton.addEventListener("click", () => {
+        introButton.addEventListener("click", (e) => {
+          try {
+            if (e && e.stopPropagation) e.stopPropagation();
+          } catch (e) {}
+
           const storeId = introButton.dataset.id;
-          const restaurantData = JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]");
-          const store = restaurantData.find(s => s.storeId === storeId);
-          if (!store) { alert("店舗情報が見つかりませんでした"); return; }
+          const restaurantData = JSON.parse(localStorage.getItem(`restaurantData_${userId}`) || "[]") || [];
+
+          // 1) まずは storeId で直接検索
+          let store = restaurantData.find(s => s.storeId === storeId);
+
+          // 2) 見つからなければ baseId でフォールバック（例: 'teishoku001-2' -> 'teishoku001'）
+          if (!store) {
+            const guessedBase = (storeId && typeof storeId === 'string' && storeId.indexOf('-') > -1) ? storeId.split('-')[0] : null;
+            if (guessedBase) {
+              store = restaurantData.find(s => s.baseId === guessedBase) || null;
+              if (store) {
+                console.info("coupon.js: introButton fallback found store by baseId", guessedBase, "for storeId", storeId);
+                // UI の一貫性を保つため、一時的に modal 用オブジェクトの storeId を variant にして渡す
+                store = Object.assign({}, store, { storeId: storeId });
+              }
+            }
+          }
+
+          if (!store) {
+            alert("店舗情報が見つかりませんでした");
+            return;
+          }
+
+          // used カード側では unlocked を付与してから開く
+          try { store.unlocked = true; } catch (e) {}
+
           openModal(store);
         });
       }
@@ -490,6 +556,27 @@ document.addEventListener("DOMContentLoaded", async () => {
    --------------------------- */
 function showThankYou(callback) {
   try { hideCouponReadyImage(); } catch (e) {}
+
+  // --- 効果音再生（存在すれば） ---
+  try {
+    const audio = window.__couponUseAudio || (typeof Audio !== 'undefined' ? new Audio('sound/coupon-use.mp3') : null);
+    if (audio) {
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+        // 適度な音量に設定（必要に応じて調整）
+        try { audio.volume = 0.9; } catch(e) {}
+      } catch (e) {}
+      const p = audio.play && audio.play();
+      if (p && typeof p.then === 'function') {
+        p.catch(err => { /* 自動再生制限等で失敗しても続行 */ console.info('coupon audio play blocked or failed:', err); });
+      }
+    }
+  } catch (e) {
+    console.warn('play coupon audio failed:', e);
+  }
+  // --- 効果音ここまで ---
+
   const thankYou = document.createElement("div");
   thankYou.textContent = "🎉 Thank You!";
   thankYou.style.position = "fixed";

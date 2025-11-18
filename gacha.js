@@ -1225,23 +1225,24 @@ function updateRestaurantData(updatedStore) {
   const key = `restaurantData_${userId}`;
   const currentData = JSON.parse(localStorage.getItem(key) || "[]");
 
+  // 正常化: ベースID を推定しておく（variant -> base を取り出す）
+  const guessedBase = updatedStore && (updatedStore.baseId || (typeof updatedStore.storeId === 'string' ? updatedStore.storeId.split('-')[0] : null));
+
+  // map で通常の storeId マッチング更新を試みる
+  let foundMatch = false;
   const newData = currentData.map(store => {
     if (store.storeId === updatedStore.storeId) {
-      // マージ時のルール：
-      // - 常に unlocked を true にできる（アンロック操作）
-      // - couponUsed は明示的に更新された場合のみ上書き（クーポン使用時のみ）
+      foundMatch = true;
       const merged = { ...store };
       if (typeof updatedStore.unlocked !== 'undefined') merged.unlocked = updatedStore.unlocked;
       if (typeof updatedStore.couponUsed !== 'undefined') merged.couponUsed = updatedStore.couponUsed;
-      // preserve nested coupon unless explicitly provided
       if (updatedStore.coupon) merged.coupon = updatedStore.coupon;
-      // preserve other fields if provided
       if (updatedStore.prizeType) merged.prizeType = updatedStore.prizeType;
-      console.log('DBG: updateRestaurantData write', { storeId: merged.storeId, unlocked: merged.unlocked, couponUsed: merged.couponUsed });
+      console.log('DBG: updateRestaurantData write (direct storeId match)', { storeId: merged.storeId, unlocked: merged.unlocked, couponUsed: merged.couponUsed });
       return merged;
     }
 
-    // baseId 一致で normal 賞はアンロック（従来の挙動）
+    // 既存ロジック: baseId 一致で normal 賞はアンロック
     if (store.baseId === updatedStore.baseId && store.prizeType === "normal" && !store.unlocked) {
       return { ...store, unlocked: true };
     }
@@ -1249,7 +1250,38 @@ function updateRestaurantData(updatedStore) {
     return store;
   });
 
-  localStorage.setItem(key, JSON.stringify(newData));
+  // もし storeId 一致が無かったら baseId で探して variant を反映（既存エントリを variant に置き換える）
+  if (!foundMatch && guessedBase) {
+    const idx = newData.findIndex(s => s.baseId === guessedBase);
+    if (idx !== -1) {
+      // マージして storeId を variant にする（variant が与えられていればそれを使う）
+      const target = newData[idx];
+      const merged = { ...target, ...updatedStore };
+      if (updatedStore.storeId) merged.storeId = updatedStore.storeId;
+      // 注意: merged.prizeType/unlocked/couponUsed を上書きする
+      if (typeof updatedStore.unlocked === 'undefined') merged.unlocked = target.unlocked;
+      if (typeof updatedStore.couponUsed === 'undefined') merged.couponUsed = target.couponUsed;
+      newData[idx] = merged;
+      console.info("DBG: updateRestaurantData applied variant to existing base entry", { baseId: guessedBase, newStoreId: merged.storeId });
+      foundMatch = true;
+    } else {
+      // baseId でも見つからなければ、updatedStore をそのまま追加して variant エントリを作る（保険）
+      try {
+        newData.push(Object.assign({}, updatedStore));
+        console.info("DBG: updateRestaurantData appended updatedStore (no match found); storeId:", updatedStore.storeId);
+        foundMatch = true;
+      } catch (e) {
+        console.warn("updateRestaurantData: failed to append updatedStore", e);
+      }
+    }
+  }
+
+  try {
+    localStorage.setItem(key, JSON.stringify(newData));
+  } catch (e) {
+    console.warn("updateRestaurantData: failed to save restaurantData", e);
+  }
+
   // UI 更新は外部で行う（必要ならここで明示的に呼ぶ）
 }
 
