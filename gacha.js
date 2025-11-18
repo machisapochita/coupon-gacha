@@ -557,35 +557,23 @@ function startGachaSequence() {
     console.warn("gacha: failed to enrich/store-assign coupon from base data", e);
   }
 
-  console.log("抽選された賞種:", prizeType);
-  // 追加（デバッグ）: 当選直後に選ばれた store の概要を出力
+  // --- variant mapping apply (moved earlier) ---
   try {
-    console.info("DBG: pre-addCoupon store summary:", {
-      storeId: store && store.storeId,
-      baseId: store && store.baseId,
-      prizeType,
-      hasStoreCoupons: !!(store && store.coupons),
-      storeCouponsKeys: store && store.coupons ? Object.keys(store.coupons) : null,
-      hasStoreCouponField: !!(store && store.coupon)
-    });
-  } catch(e) { console.warn("DBG log failed", e); }
-  console.log("選ばれた店舗:", store);
-
-  if (!store) {
-    alert("抽選対象の店舗がありません。");
-    popup.classList.add("hidden");
-    return;
+    const resolvedVariantId = resolveVariantStoreId(store, prizeType);
+    if (resolvedVariantId) {
+      // variantStoreId を保存し、以降の処理（updateRestaurantData, addCoupon, snapshot, logs）が variant を参照するようにする
+      store.variantStoreId = resolvedVariantId;
+      store.storeId = resolvedVariantId;
+      console.info("DBG: applied variant storeId (early):", resolvedVariantId);
+    } else {
+      console.info("DBG: variant resolution returned null; leaving store.storeId as-is:", store && store.storeId);
+    }
+  } catch (e) {
+    console.warn("variant mapping apply (early) failed:", e);
   }
 
-  // gachaCompleted フラグ
-  if (prizeType === "last-one") {
-    localStorage.setItem("gachaCompleted", "true");
-  } else {
-    localStorage.setItem("gachaCompleted", "false");
-  }
-
-  // pause stateSync to avoid intermediate duplicate saveState posts
-  try { stateSync.pause(); } catch(e){}
+  console.log("抽選された賞種:", prizeType);
+  // ... デバッグログ等 ...
 
   // 当選店舗をアンロックしてクーポンを用意（PR 再生前に状態を更新）
   store.prizeType = prizeType;
@@ -593,21 +581,7 @@ function startGachaSequence() {
   updateRestaurantData(store);
   addCoupon(store, prizeType);
 
-  // --- variant mapping apply ---
-  try {
-    // resolveVariantStoreId は gacha.js 内に追加済み、なければ別途追加してください
-    const resolvedVariantId = resolveVariantStoreId(store, prizeType);
-    if (resolvedVariantId) {
-      // variantStoreId を保存し、以降の snapshot/log で使われるように store.storeId を上書き
-      store.variantStoreId = resolvedVariantId;
-      store.storeId = resolvedVariantId;
-      console.info("DBG: applied variant storeId:", resolvedVariantId);
-    } else {
-      console.info("DBG: variant resolution returned null; leaving store.storeId as-is:", store && store.storeId);
-    }
-  } catch (e) {
-    console.warn("variant mapping apply failed:", e);
-  }
+  // ← 元の位置にあった variant ブロックは削除（ここではもう不要）
 
   // ここでガチャ実行ログを送る（エラーがあっても動作継続）
   try {
@@ -909,6 +883,28 @@ function addCoupon(store, prizeType) {
 
   coupons.push(newCoupon);
   localStorage.setItem(key, JSON.stringify(coupons));
+
+  // coupons.push(newCoupon);
+  // localStorage.setItem(key, JSON.stringify(coupons));
+
+  // ------- 追加: 保存直後にクーポンの storeId を variant 表記に正規化する -------
+  try {
+    const normalized = (JSON.parse(localStorage.getItem(key) || "[]") || []).map(c => {
+      try {
+        const base = c && (c.baseId || (c.storeId && typeof c.storeId === 'string' ? c.storeId.split('-')[0] : null));
+        const expected = resolveVariantStoreId(base, c && c.type) || c.storeId;
+        if (expected && expected !== c.storeId) {
+          console.info("DBG normalize coupon storeId:", { before: c.storeId, after: expected, storeName: c.storeName, type: c.type });
+          c.storeId = expected;
+        }
+      } catch (e) { /* noop */ }
+      return c;
+    });
+    localStorage.setItem(key, JSON.stringify(normalized));
+  } catch (e) {
+    console.warn("addCoupon: normalization of saved coupons failed:", e);
+  }
+  // -------------------------------------------------------------------------------
 
   console.info("DBG addCoupon: pushed newCoupon", newCoupon);
 

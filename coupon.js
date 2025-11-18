@@ -419,17 +419,34 @@ document.addEventListener("DOMContentLoaded", async () => {
               console.warn("confirm-use: markCouponUsedAndSync failed:", err);
             }
 
-            // 送信用 storeId は「myCoupons に保存されたクーポンの storeId（variant）」を優先して使う
+            // 送信用 storeId は myCoupons に保存されたクーポンの storeId（variant）を優先して使う
             let logStoreId = storeId;
             try {
               const couponsList = JSON.parse(localStorage.getItem(`myCoupons_${userId}`) || "[]") || [];
-              const couponEntry = couponsList.find(c => c && (c.storeId === storeId || c.id === storeId || (c.baseId && c.baseId === storeId.split("-")[0])));
+
+              // 1) まずは modal に設定されていた storeId と一致するクーポンを探す
+              let couponEntry = couponsList.find(c => c && (c.storeId === storeId || c.id === storeId));
+
+              // 2) 見つからなければ baseId（storeId のプレフィックス）で探す
+              if (!couponEntry) {
+                const guessedBase = (storeId && typeof storeId === 'string' && storeId.indexOf('-') > -1)
+                  ? storeId.split('-')[0]
+                  : (store && store.baseId);
+                if (guessedBase) {
+                  couponEntry = couponsList.find(c => c && (c.baseId === guessedBase));
+                }
+              }
+
+              // 3) それでも見つからなければ 店名＋賞種 で探す（稀なフォールバック）
+              if (!couponEntry) {
+                couponEntry = couponsList.find(c => c && c.storeName === storeName && c.type === prizeType);
+              }
+
               if (couponEntry && couponEntry.storeId) {
                 logStoreId = couponEntry.storeId;
               }
             } catch (e) {
-              // フォールバック: 何か失敗しても元の storeId を使う
-              console.warn("logStoreId resolution failed, using resolved storeId:", e);
+              console.warn("resolve logStoreId failed, falling back to resolved storeId:", e);
             }
 
             try {
